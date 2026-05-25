@@ -1188,7 +1188,8 @@ function SettingsPage({ profile, themes, accents, onUpdateProfile, onLogout }: a
   )
 }
 
-// ── Shared styles ─────────────────────────────────────────────const inp: React.CSSProperties = {
+// ── Shared styles ─────────────────────────────────────────────
+const inp: React.CSSProperties = {
   width:'100%',background:'var(--card2)',border:'1px solid var(--line2)',borderRadius:'var(--rs)',
   padding:'8px 12px',color:'var(--t1)',fontSize:13,outline:'none',fontFamily:'Inter, sans-serif',
 }
