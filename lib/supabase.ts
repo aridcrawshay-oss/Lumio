@@ -1,17 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
-import { createClientComponentClient, createServerComponentClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import type { Database } from '@/types/database'
 
-// Browser client (for client components)
+// Browser client
 export const createBrowserClient = () =>
   createClientComponentClient<Database>()
 
-// Server client (for server components and API routes)
-export const createServerClient = () =>
-  createServerComponentClient<Database>({ cookies })
-
-// Admin client (service role — only use in API routes, never browser)
+// Admin client - only use in API routes
 export const createAdminClient = () =>
   createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
