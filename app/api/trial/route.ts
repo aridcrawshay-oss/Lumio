@@ -1,4 +1,4 @@
-import { createServerClient } from '@/lib/supabase'
+import { createServerClient } from '@/lib/supabase-server'
 import { getTrialStatus } from '@/lib/trial'
 import { NextResponse } from 'next/server'
 
