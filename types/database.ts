@@ -113,7 +113,7 @@ export interface Database {
         Row: {
           id: string
           user_id: string
-          subject_id: string
+          subject_id: string | null
           name: string
           size_bytes: number
           mime_type: string

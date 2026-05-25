@@ -164,63 +164,26 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
     showToast('🪙', `+${amount} — ${reason}`)
   }
 
-  function cleanFileName(name: string) {
-    return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120)
-  }
-
   async function uploadStudyFiles(fileList: FileList | File[], subjectId?: string | null) {
     const incoming = Array.from(fileList)
     if (!incoming.length) return
 
-    const allowed = new Set([
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'text/plain',
-      'image/png',
-      'image/jpeg',
-    ])
-
     const saved: FileRow[] = []
     for (const file of incoming) {
-      const isAllowed = allowed.has(file.type) || /\.(pdf|docx|txt|png|jpe?g)$/i.test(file.name)
-      if (!isAllowed) {
-        showToast('⚠️', `${file.name} is not a supported file type`)
+      const form = new FormData()
+      form.append('file', file)
+      if (subjectId) form.append('subjectId', subjectId)
+
+      const res = await fetch('/api/files/upload', { method: 'POST', body: form })
+      const data = await res.json()
+
+      if (!res.ok) {
+        showToast('⚠️', data.error ?? `${file.name} could not be uploaded`)
         continue
       }
 
-      const storagePath = `${profile.id}/${subjectId || 'dashboard'}/${Date.now()}-${cleanFileName(file.name)}`
-      const { error: uploadError } = await supabase.storage
-        .from('lumio-files')
-        .upload(storagePath, file, {
-          contentType: file.type || 'application/octet-stream',
-          upsert: false,
-        })
-
-      if (uploadError) {
-        showToast('⚠️', `Upload failed: ${uploadError.message}`)
-        continue
-      }
-
-      const textContent = file.type === 'text/plain' || /\.txt$/i.test(file.name)
-        ? (await file.text()).slice(0, 120000)
-        : null
-
-      const { data, error } = await supabase.from('files').insert({
-        user_id: profile.id,
-        subject_id: subjectId || null,
-        name: file.name,
-        size_bytes: file.size,
-        mime_type: file.type || 'application/octet-stream',
-        storage_path: storagePath,
-        text_content: textContent,
-      }).select().single()
-
-      if (error) {
-        showToast('⚠️', `File metadata failed: ${error.message}`)
-        continue
-      }
-
-      if (data) saved.push(data)
+      if (data.warning) showToast('⚠️', data.warning)
+      if (data.file) saved.push(data.file)
     }
 
     if (saved.length) {
@@ -234,10 +197,9 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
   }
 
   function fileContext(file: FileRow) {
-    const subject = fileSubject(file)
-    return file.text_content?.trim()
-      ? `[${file.name}]\n${file.text_content}`
-      : `File "${file.name}" (${file.mime_type}, ${file.size_bytes} bytes) was uploaded${subject ? ` for ${subject.name}` : ''}, but readable text has not been extracted. If the file is not TXT, ask the student to paste or extract text before generating detailed study material.`
+    const text = file.text_content?.trim()
+    if (!text) throw new Error('No readable text found in this file.')
+    return `[${file.name}]\n${text}`
   }
 
   async function aiFileSummary(file: FileRow) {
@@ -260,21 +222,23 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
     const msg = `Create flashcards for this ${subject ? `${subject.name} ` : ''}file:\n\n${fileContext(file)}`
     const raw = await callAI(sys, [{ role: 'user', content: msg }])
     const cards = JSON.parse(raw.replace(/```json|```/g, '').trim())
+    if (!Array.isArray(cards) || !cards.length) throw new Error('AI did not return any flashcards.')
     const inserts = cards.map((c: any) => ({
       user_id: profile.id,
       subject_id: file.subject_id,
       subject_name: subject?.name ?? 'Uploaded File',
-      front: c.front,
-      back: c.back,
+      front: String(c.front ?? '').trim(),
+      back: String(c.back ?? '').trim(),
       due_date: today(),
-    }))
+    })).filter((c: any) => c.front && c.back)
+    if (!inserts.length) throw new Error('AI did not return usable flashcards.')
     const { data: newCards } = await supabase.from('flashcards').insert(inserts).select()
     if (newCards) {
       setFlashcards(fcs => [...fcs, ...newCards])
       setFcCards(fcs => [...fcs, ...newCards])
     }
     await addTokens(10, 'Flashcards generated!')
-    return cards.length
+    return inserts.length
   }
 
   async function handleLogout() {
@@ -445,9 +409,57 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
       front: c.front, back: c.back, due_date: today(),
     }))
     const { data: newCards } = await supabase.from('flashcards').insert(inserts).select()
-    if (newCards) setFlashcards(fcs => [...fcs, ...newCards])
+    if (newCards) {
+      setFlashcards(fcs => [...fcs, ...newCards])
+      setFcCards(fcs => [...fcs, ...newCards])
+    }
     await addTokens(10, 'Flashcards generated!')
     return cards.length
+  }
+
+  async function addFlashcard(data: { subject_id: string | null; subject_name: string; front: string; back: string }) {
+    const { data: card, error } = await supabase.from('flashcards').insert({
+      user_id: profile.id,
+      subject_id: data.subject_id,
+      subject_name: data.subject_name,
+      front: data.front,
+      back: data.back,
+      due_date: today(),
+    }).select().single()
+    if (error) {
+      showToast('⚠️', error.message)
+      return
+    }
+    if (card) {
+      setFlashcards(cards => [card, ...cards])
+      setFcCards(cards => [card, ...cards])
+      showToast('📇', 'Flashcard added')
+    }
+  }
+
+  async function updateFlashcard(id: string, updates: Partial<Flashcard>) {
+    const { data: card, error } = await supabase.from('flashcards').update(updates).eq('id', id).select().single()
+    if (error) {
+      showToast('⚠️', error.message)
+      return
+    }
+    if (card) {
+      setFlashcards(cards => cards.map(c => c.id === id ? card : c))
+      setFcCards(cards => cards.map(c => c.id === id ? card : c))
+      showToast('✅', 'Flashcard updated')
+    }
+  }
+
+  async function deleteFlashcard(id: string) {
+    const { error } = await supabase.from('flashcards').delete().eq('id', id)
+    if (error) {
+      showToast('⚠️', error.message)
+      return
+    }
+    setFlashcards(cards => cards.filter(c => c.id !== id))
+    setFcCards(cards => cards.filter(c => c.id !== id))
+    setFcIdx(i => Math.max(0, Math.min(i, fcCards.length - 2)))
+    showToast('🗑️', 'Flashcard deleted')
   }
 
   const lv = getLvl(profile.xp)
@@ -714,10 +726,15 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
         {page === 'flashcards' && (
           <FlashcardPage
             flashcards={fcCards}
+            subjects={subjects}
             fcIdx={fcIdx}
+            setFcIdx={setFcIdx}
             fcFlipped={fcFlipped}
             setFcFlipped={setFcFlipped}
             rateFC={rateFC}
+            onAdd={addFlashcard}
+            onUpdate={updateFlashcard}
+            onDelete={deleteFlashcard}
           />
         )}
 
@@ -872,7 +889,15 @@ function FileDropzone({
       </div>
 
       <div
+        role="button"
+        tabIndex={0}
         onClick={() => inputRef.current?.click()}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            inputRef.current?.click()
+          }
+        }}
         onDragOver={e => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
         onDrop={e => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files) }}
@@ -901,6 +926,9 @@ function FileDropzone({
                     <div style={{fontSize:12,fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{file.name}</div>
                     <div style={{fontSize:10,color:'var(--t3)'}}>
                       {formatBytes(file.size_bytes)} · {file.mime_type || 'file'}{linkedSubject ? ` · ${linkedSubject.name}` : ''}
+                    </div>
+                    <div style={{fontSize:10,color:file.text_content?.trim() ? 'var(--ok)' : 'var(--warn)',marginTop:2}}>
+                      {file.text_content?.trim() ? 'Readable text ready' : 'No readable text found'}
                     </div>
                   </div>
                 </div>
@@ -979,51 +1007,116 @@ function AssignmentForm({ subjects, onSave }: { subjects: Subject[], onSave: Fun
   )
 }
 
-function FlashcardPage({ flashcards, fcIdx, fcFlipped, setFcFlipped, rateFC }: any) {
-  const card = flashcards[fcIdx]
-  if (!flashcards.length) return (
-    <div style={{textAlign:'center',paddingTop:60,color:'var(--t3)'}}>
-      <div style={{fontSize:40,marginBottom:12}}>📇</div>
-      <p>No flashcards yet — go to a subject and generate some!</p>
-    </div>
-  )
+function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFcFlipped, rateFC, onAdd, onUpdate, onDelete }: any) {
+  const [query, setQuery] = useState('')
+  const [subjectFilter, setSubjectFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [showAdd, setShowAdd] = useState(false)
+  const [addSubjectId, setAddSubjectId] = useState('')
+  const [addFront, setAddFront] = useState('')
+  const [addBack, setAddBack] = useState('')
+  const [editing, setEditing] = useState<Flashcard | null>(null)
+  const [editFront, setEditFront] = useState('')
+  const [editBack, setEditBack] = useState('')
+  const card = flashcards[fcIdx] ?? flashcards[0]
+  const todayStr = today()
+  const subjectNames = Array.from(new Set([
+    ...subjects.map((s: Subject) => s.name),
+    ...flashcards.map((c: Flashcard) => c.subject_name),
+  ].filter(Boolean)))
+  const managedCards = flashcards.filter((c: Flashcard) => {
+    const q = query.trim().toLowerCase()
+    const matchesSearch = !q || c.front.toLowerCase().includes(q) || c.back.toLowerCase().includes(q)
+    const matchesSubject = subjectFilter === 'All' || c.subject_name === subjectFilter
+    const matchesStatus = statusFilter === 'all' ||
+      (statusFilter === 'weak' && c.missed > 0) ||
+      (statusFilter === 'due' && c.due_date <= todayStr)
+    return matchesSearch && matchesSubject && matchesStatus
+  })
+  const groupedCards = managedCards.reduce((groups: Record<string, Flashcard[]>, c: Flashcard) => {
+    const key = c.subject_name || 'General'
+    groups[key] = groups[key] || []
+    groups[key].push(c)
+    return groups
+  }, {})
+
+  function saveAdd() {
+    if (!addFront.trim() || !addBack.trim()) return
+    const subject = subjects.find((s: Subject) => s.id === addSubjectId)
+    onAdd({
+      subject_id: subject?.id ?? null,
+      subject_name: subject?.name ?? 'General',
+      front: addFront.trim(),
+      back: addBack.trim(),
+    })
+    setAddFront('')
+    setAddBack('')
+    setShowAdd(false)
+  }
+
+  function startEdit(c: Flashcard) {
+    setEditing(c)
+    setEditFront(c.front)
+    setEditBack(c.back)
+  }
+
+  function saveEdit() {
+    if (!editing || !editFront.trim() || !editBack.trim()) return
+    onUpdate(editing.id, { front: editFront.trim(), back: editBack.trim() })
+    setEditing(null)
+  }
+
   return (
     <div>
-      <h2 style={{fontFamily:'Syne, sans-serif',fontSize:21,fontWeight:800,marginBottom:14}}>Flashcards</h2>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+        <h2 style={{fontFamily:'Syne, sans-serif',fontSize:21,fontWeight:800}}>Flashcards</h2>
+        <button onClick={() => setShowAdd(true)} style={btn}>+ Add Flashcard</button>
+      </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         <div>
-          <div style={{fontSize:10,color:'var(--t3)',marginBottom:8}}>Card {fcIdx+1} of {flashcards.length}</div>
-          <div onClick={() => setFcFlipped(!fcFlipped)}
-            style={{height:220,background: fcFlipped ? 'rgba(108,92,231,.08)' : 'var(--card2)',
-              border:`1px solid ${fcFlipped ? 'rgba(108,92,231,.25)' : 'var(--line2)'}`,
-              borderRadius:'var(--r)',display:'flex',flexDirection:'column',alignItems:'center',
-              justifyContent:'center',padding:24,textAlign:'center',cursor:'pointer',
-              transition:'all .3s'}}>
-            <div style={{fontSize:10,textTransform:'uppercase',letterSpacing:1,color:'var(--t3)',marginBottom:10}}>
-              {fcFlipped ? 'Answer' : 'Question'}
-            </div>
-            <div style={{fontSize:16,fontWeight:500,lineHeight:1.5}}>
-              {fcFlipped ? card.back : card.front}
-            </div>
-            {!fcFlipped && <div style={{fontSize:10,color:'var(--t3)',marginTop:8}}>Click to reveal</div>}
-          </div>
-          <div style={{display:'flex',gap:7,justifyContent:'center',marginTop:10}}>
-            {[
-              {r:'wrong',label:'✗ Missed',bg:'rgba(255,112,67,.12)',c:'var(--warn)'},
-              {r:'hard',label:'△ Hard',bg:'rgba(248,200,66,.12)',c:'var(--gold)'},
-              {r:'easy',label:'✓ Got it!',bg:'rgba(45,212,160,.12)',c:'var(--ok)'},
-            ].map(b => (
-              <button key={b.r} onClick={() => { if(!fcFlipped){setFcFlipped(true);return;} rateFC(b.r as any) }}
-                style={{flex:1,maxWidth:100,padding:8,borderRadius:'var(--rs)',border:'none',
-                  fontSize:11,fontWeight:500,cursor:'pointer',fontFamily:'Inter, sans-serif',
-                  background:b.bg,color:b.c}}>
-                {b.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
           <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+            <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Practice Mode</div>
+            {!flashcards.length ? (
+              <div style={{textAlign:'center',padding:28,color:'var(--t3)',fontSize:12}}>
+                <div style={{fontSize:34,marginBottom:10}}>📇</div>
+                No flashcards yet
+              </div>
+            ) : (
+              <>
+                <div style={{fontSize:10,color:'var(--t3)',marginBottom:8}}>Card {fcIdx+1} of {flashcards.length}</div>
+                <div onClick={() => setFcFlipped(!fcFlipped)}
+                  style={{height:220,background: fcFlipped ? 'rgba(108,92,231,.08)' : 'var(--card2)',
+                    border:`1px solid ${fcFlipped ? 'rgba(108,92,231,.25)' : 'var(--line2)'}`,
+                    borderRadius:'var(--r)',display:'flex',flexDirection:'column',alignItems:'center',
+                    justifyContent:'center',padding:24,textAlign:'center',cursor:'pointer',
+                    transition:'all .3s'}}>
+                  <div style={{fontSize:10,textTransform:'uppercase',letterSpacing:1,color:'var(--t3)',marginBottom:10}}>
+                    {fcFlipped ? 'Answer' : 'Question'}
+                  </div>
+                  <div style={{fontSize:16,fontWeight:500,lineHeight:1.5}}>
+                    {fcFlipped ? card.back : card.front}
+                  </div>
+                  {!fcFlipped && <div style={{fontSize:10,color:'var(--t3)',marginTop:8}}>Click to reveal</div>}
+                </div>
+                <div style={{display:'flex',gap:7,justifyContent:'center',marginTop:10}}>
+                  {[
+                    {r:'wrong',label:'✗ Missed',bg:'rgba(255,112,67,.12)',c:'var(--warn)'},
+                    {r:'hard',label:'△ Hard',bg:'rgba(248,200,66,.12)',c:'var(--gold)'},
+                    {r:'easy',label:'✓ Got it!',bg:'rgba(45,212,160,.12)',c:'var(--ok)'},
+                  ].map(b => (
+                    <button key={b.r} onClick={() => { if(!fcFlipped){setFcFlipped(true);return;} rateFC(b.r as any) }}
+                      style={{flex:1,maxWidth:100,padding:8,borderRadius:'var(--rs)',border:'none',
+                        fontSize:11,fontWeight:500,cursor:'pointer',fontFamily:'Inter, sans-serif',
+                        background:b.bg,color:b.c}}>
+                      {b.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16,marginTop:12}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:12}}>Weak Cards</div>
             {flashcards.filter((c:any)=>c.missed>0).sort((a:any,b:any)=>b.missed-a.missed).slice(0,5).map((c:any) => (
               <div key={c.id} style={{padding:'6px 0',borderBottom:'1px solid var(--line)',fontSize:11}}>
@@ -1035,9 +1128,89 @@ function FlashcardPage({ flashcards, fcIdx, fcFlipped, setFcFlipped, rateFC }: a
               <div style={{color:'var(--t3)',fontSize:11}}>No weak spots yet!</div>}
           </div>
         </div>
+
+        <div>
+          <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+            <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Manage Cards</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 120px 100px',gap:7,marginBottom:10}}>
+              <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search cards..." style={{...inp,padding:'7px 10px',fontSize:12}} />
+              <select value={subjectFilter} onChange={e=>setSubjectFilter(e.target.value)} style={{...inp,padding:'7px 8px',fontSize:12}}>
+                <option>All</option>
+                {subjectNames.map(name => <option key={name}>{name}</option>)}
+              </select>
+              <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{...inp,padding:'7px 8px',fontSize:12}}>
+                <option value="all">All cards</option>
+                <option value="due">Due</option>
+                <option value="weak">Weak</option>
+              </select>
+            </div>
+
+            {Object.keys(groupedCards).length === 0 ? (
+              <div style={{color:'var(--t3)',fontSize:12,padding:'18px 0',textAlign:'center'}}>No cards match this view</div>
+            ) : Object.entries(groupedCards).map(([subject, cards]) => (
+              <div key={subject} style={{marginBottom:12}}>
+                <div style={{fontSize:10,color:'var(--t3)',textTransform:'uppercase',letterSpacing:.4,marginBottom:6}}>{subject}</div>
+                {(cards as Flashcard[]).map(c => (
+                  <div key={c.id} style={{background:'var(--card2)',border:'1px solid var(--line)',borderRadius:'var(--rs)',padding:9,marginBottom:7}}>
+                    <button onClick={() => { setFcIdx(Math.max(0, flashcards.findIndex((x: Flashcard) => x.id === c.id))); setFcFlipped(false) }}
+                      style={{display:'block',width:'100%',textAlign:'left',background:'transparent',border:'none',padding:0,color:'inherit',cursor:'pointer',fontFamily:'Inter, sans-serif'}}>
+                      <div style={{fontSize:12,fontWeight:600,lineHeight:1.4,marginBottom:3}}>{c.front}</div>
+                      <div style={{fontSize:11,color:'var(--t3)',lineHeight:1.4}}>{c.back}</div>
+                    </button>
+                    <div style={{display:'flex',gap:6,marginTop:7}}>
+                      <button onClick={() => startEdit(c)} style={{...miniBtn,color:'var(--acc2)'}}>Edit</button>
+                      <button onClick={() => onDelete(c.id)} style={{...miniBtn,color:'var(--warn)'}}>Delete</button>
+                      <span style={{marginLeft:'auto',fontSize:10,color:c.due_date<=todayStr?'var(--gold)':'var(--t3)'}}>
+                        {c.missed > 0 ? `${c.missed} missed` : 'steady'} · due {c.due_date}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
+
+      {(showAdd || editing) && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',zIndex:60,
+          display:'flex',alignItems:'center',justifyContent:'center'}}
+          onClick={() => { setShowAdd(false); setEditing(null) }}>
+          <div style={{background:'var(--panel)',border:'1px solid var(--line2)',borderRadius:14,
+            padding:22,width:430,maxWidth:'92vw'}} onClick={e => e.stopPropagation()}>
+            <div style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:700,marginBottom:14}}>
+              {editing ? 'Edit Flashcard' : 'Add Flashcard'}
+            </div>
+            {!editing && (
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Subject</label>
+                <select value={addSubjectId} onChange={e=>setAddSubjectId(e.target.value)} style={inp}>
+                  <option value="">General</option>
+                  {subjects.map((s: Subject) => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
+                </select>
+              </div>
+            )}
+            <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Front</label>
+            <textarea value={editing ? editFront : addFront} onChange={e=>editing ? setEditFront(e.target.value) : setAddFront(e.target.value)}
+              style={{...inp,minHeight:80,resize:'vertical',marginBottom:10} as any} />
+            <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Back</label>
+            <textarea value={editing ? editBack : addBack} onChange={e=>editing ? setEditBack(e.target.value) : setAddBack(e.target.value)}
+              style={{...inp,minHeight:90,resize:'vertical'} as any} />
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}}>
+              <button onClick={() => { setShowAdd(false); setEditing(null) }}
+                style={{...btn,background:'transparent',color:'var(--t2)',border:'1px solid var(--line2)'}}>Cancel</button>
+              <button onClick={editing ? saveEdit : saveAdd} style={btn}>{editing ? 'Save' : 'Add'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+const miniBtn: React.CSSProperties = {
+  background:'transparent',border:'1px solid var(--line2)',borderRadius:'var(--rs)',padding:'4px 8px',
+  fontSize:10,cursor:'pointer',fontFamily:'Inter, sans-serif',
 }
 
 function PomodoroPage({ pomoSec, setPomoSec, pomoRunning, setPomoRunning, pomoMode, setPomoMode, pomoMins, setPomoMins, pomoCount }: any) {

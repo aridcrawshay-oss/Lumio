@@ -51,7 +51,7 @@ create table public.subjects (
 create table public.files (
   id           uuid primary key default uuid_generate_v4(),
   user_id      uuid not null references public.profiles(id) on delete cascade,
-  subject_id   uuid not null references public.subjects(id) on delete cascade,
+  subject_id   uuid references public.subjects(id) on delete set null,
   name         text not null,
   size_bytes   bigint not null default 0,
   mime_type    text not null default '',
