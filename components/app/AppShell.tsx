@@ -9,6 +9,7 @@ type Subject = Database['public']['Tables']['subjects']['Row']
 type Assignment = Database['public']['Tables']['assignments']['Row']
 type Flashcard = Database['public']['Tables']['flashcards']['Row']
 type Goal = Database['public']['Tables']['goals']['Row']
+type FileRow = Database['public']['Tables']['files']['Row']
 
 interface TrialStatus {
   isActive: boolean
@@ -95,6 +96,7 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [flashcards, setFlashcards] = useState<Flashcard[]>([])
   const [goals, setGoals] = useState<Goal[]>([])
+  const [files, setFiles] = useState<FileRow[]>([])
   const [curSubject, setCurSubject] = useState<Subject|null>(null)
   const [toast, setToast] = useState<{icon:string,msg:string}|null>(null)
   const [aiMsgs, setAiMsgs] = useState<{role:string,content:string}[]>([])
@@ -130,18 +132,20 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
   }, [])
 
   async function loadAll() {
-    const [{ data: subs }, { data: asgn }, { data: fcs }, { data: gls }, { data: inv }] = await Promise.all([
+    const [{ data: subs }, { data: asgn }, { data: fcs }, { data: gls }, { data: inv }, { data: fls }] = await Promise.all([
       supabase.from('subjects').select('*').order('created_at'),
       supabase.from('assignments').select('*').order('created_at', { ascending: false }),
       supabase.from('flashcards').select('*').order('due_date'),
       supabase.from('goals').select('*').order('created_at'),
       supabase.from('inventory').select('item_id').eq('active', true),
+      supabase.from('files').select('*').order('created_at', { ascending: false }),
     ])
     if (subs) setSubjects(subs)
     if (asgn) setAssignments(asgn)
     if (fcs) { setFlashcards(fcs); setFcCards(fcs) }
     if (gls) setGoals(gls)
     if (inv) setInventory(inv.map(i => i.item_id))
+    if (fls) setFiles(fls)
   }
 
   function showToast(icon: string, msg: string) {
@@ -158,6 +162,119 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
   async function addTokens(amount: number, reason: string) {
     await updateProfile({ tokens: profile.tokens + amount, xp: profile.xp + amount })
     showToast('🪙', `+${amount} — ${reason}`)
+  }
+
+  function cleanFileName(name: string) {
+    return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120)
+  }
+
+  async function uploadStudyFiles(fileList: FileList | File[], subjectId?: string | null) {
+    const incoming = Array.from(fileList)
+    if (!incoming.length) return
+
+    const allowed = new Set([
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'image/png',
+      'image/jpeg',
+    ])
+
+    const saved: FileRow[] = []
+    for (const file of incoming) {
+      const isAllowed = allowed.has(file.type) || /\.(pdf|docx|txt|png|jpe?g)$/i.test(file.name)
+      if (!isAllowed) {
+        showToast('⚠️', `${file.name} is not a supported file type`)
+        continue
+      }
+
+      const storagePath = `${profile.id}/${subjectId || 'dashboard'}/${Date.now()}-${cleanFileName(file.name)}`
+      const { error: uploadError } = await supabase.storage
+        .from('lumio-files')
+        .upload(storagePath, file, {
+          contentType: file.type || 'application/octet-stream',
+          upsert: false,
+        })
+
+      if (uploadError) {
+        showToast('⚠️', `Upload failed: ${uploadError.message}`)
+        continue
+      }
+
+      const textContent = file.type === 'text/plain' || /\.txt$/i.test(file.name)
+        ? (await file.text()).slice(0, 120000)
+        : null
+
+      const { data, error } = await supabase.from('files').insert({
+        user_id: profile.id,
+        subject_id: subjectId || null,
+        name: file.name,
+        size_bytes: file.size,
+        mime_type: file.type || 'application/octet-stream',
+        storage_path: storagePath,
+        text_content: textContent,
+      }).select().single()
+
+      if (error) {
+        showToast('⚠️', `File metadata failed: ${error.message}`)
+        continue
+      }
+
+      if (data) saved.push(data)
+    }
+
+    if (saved.length) {
+      setFiles(prev => [...saved, ...prev])
+      showToast('📄', `${saved.length} file${saved.length > 1 ? 's' : ''} uploaded`)
+    }
+  }
+
+  function fileSubject(file: FileRow) {
+    return subjects.find(s => s.id === file.subject_id) ?? null
+  }
+
+  function fileContext(file: FileRow) {
+    const subject = fileSubject(file)
+    return file.text_content?.trim()
+      ? `[${file.name}]\n${file.text_content}`
+      : `File "${file.name}" (${file.mime_type}, ${file.size_bytes} bytes) was uploaded${subject ? ` for ${subject.name}` : ''}, but readable text has not been extracted. If the file is not TXT, ask the student to paste or extract text before generating detailed study material.`
+  }
+
+  async function aiFileSummary(file: FileRow) {
+    const subject = fileSubject(file)
+    const sys = 'Summarise the uploaded study file in 5 bullet points with **bold** key terms. If the file text is unavailable, explain that text extraction is needed.'
+    const msg = `Summarise this ${subject ? `${subject.name} ` : ''}file:\n\n${fileContext(file)}`
+    return callAI(sys, [{ role: 'user', content: msg }])
+  }
+
+  async function aiFilePracticeTest(file: FileRow) {
+    const subject = fileSubject(file)
+    const sys = 'Create a 5-question practice test from the uploaded study file. Include 3 short-answer questions, 1 multiple-choice question, 1 extended response, and an answer key. If text is unavailable, explain that text extraction is needed.'
+    const msg = `Create a practice test for this ${subject ? `${subject.name} ` : ''}file:\n\n${fileContext(file)}`
+    return callAI(sys, [{ role: 'user', content: msg }])
+  }
+
+  async function aiFileFlashcards(file: FileRow) {
+    const subject = fileSubject(file)
+    const sys = 'Return ONLY a valid JSON array with "front" and "back" string keys. Create 6 useful exam flashcards from the uploaded file. If text is unavailable, return one card explaining that text extraction is needed.'
+    const msg = `Create flashcards for this ${subject ? `${subject.name} ` : ''}file:\n\n${fileContext(file)}`
+    const raw = await callAI(sys, [{ role: 'user', content: msg }])
+    const cards = JSON.parse(raw.replace(/```json|```/g, '').trim())
+    const inserts = cards.map((c: any) => ({
+      user_id: profile.id,
+      subject_id: file.subject_id,
+      subject_name: subject?.name ?? 'Uploaded File',
+      front: c.front,
+      back: c.back,
+      due_date: today(),
+    }))
+    const { data: newCards } = await supabase.from('flashcards').insert(inserts).select()
+    if (newCards) {
+      setFlashcards(fcs => [...fcs, ...newCards])
+      setFcCards(fcs => [...fcs, ...newCards])
+    }
+    await addTokens(10, 'Flashcards generated!')
+    return cards.length
   }
 
   async function handleLogout() {
@@ -451,6 +568,17 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
               ))}
             </div>
 
+            <FileDropzone
+              title="Upload study files"
+              subtitle="PDF, DOCX, TXT, PNG, JPG or JPEG"
+              files={files.slice(0, 6)}
+              subjects={subjects}
+              onUpload={uploadStudyFiles}
+              onSummary={aiFileSummary}
+              onFlashcards={aiFileFlashcards}
+              onPractice={aiFilePracticeTest}
+            />
+
             {/* Level + Upcoming */}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
               <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
@@ -624,6 +752,11 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
             onSaveSubject={saveSubject}
             onAISummarise={aiSummarise}
             onAIFlashcards={aiFlashcards}
+            files={files}
+            onUploadFiles={uploadStudyFiles}
+            onAIFileSummary={aiFileSummary}
+            onAIFileFlashcards={aiFileFlashcards}
+            onAIFilePractice={aiFilePracticeTest}
             userId={profile.id}
             showToast={showToast}
           />
@@ -665,6 +798,142 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
 }
 
 // ── Sub-components ────────────────────────────────────────────
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function FileDropzone({
+  title,
+  subtitle,
+  files,
+  subjects = [],
+  subjectId = null,
+  onUpload,
+  onSummary,
+  onFlashcards,
+  onPractice,
+}: any) {
+  const [dragging, setDragging] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [selectedSubjectId, setSelectedSubjectId] = useState('')
+  const [loadingAction, setLoadingAction] = useState('')
+  const [output, setOutput] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const targetSubjectId = subjectId ?? (selectedSubjectId || null)
+
+  async function upload(list: FileList | null) {
+    if (!list?.length) return
+    setUploading(true)
+    try {
+      await onUpload(list, targetSubjectId)
+    } finally {
+      setUploading(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  async function runFileAction(file: FileRow, action: 'flashcards' | 'summary' | 'practice') {
+    const key = `${action}-${file.id}`
+    setLoadingAction(key)
+    setOutput('')
+    try {
+      if (action === 'flashcards') {
+        const count = await onFlashcards(file)
+        setOutput(`Created ${count} flashcards from ${file.name}.`)
+      } else if (action === 'summary') {
+        setOutput(await onSummary(file))
+      } else {
+        setOutput(await onPractice(file))
+      }
+    } catch (e: any) {
+      setOutput(`Error: ${e.message}`)
+    } finally {
+      setLoadingAction('')
+    }
+  }
+
+  return (
+    <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16,marginBottom:14}}>
+      <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',marginBottom:10}}>
+        <div>
+          <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:3}}>{title}</div>
+          <div style={{fontSize:11,color:'var(--t3)'}}>{subtitle}</div>
+        </div>
+        {!subjectId && subjects.length > 0 && (
+          <select value={selectedSubjectId} onChange={e=>setSelectedSubjectId(e.target.value)}
+            style={{...inp,width:180,padding:'6px 9px',fontSize:12}}>
+            <option value="">No subject</option>
+            {subjects.map((s: Subject) => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
+          </select>
+        )}
+      </div>
+
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files) }}
+        style={{border:`1px dashed ${dragging ? 'var(--acc)' : 'var(--line2)'}`,
+          background:dragging ? 'var(--acc-glow)' : 'var(--card2)',borderRadius:'var(--rs)',
+          padding:18,textAlign:'center',cursor:'pointer',transition:'all .15s'}}>
+        <input ref={inputRef} type="file" multiple
+          accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/png,image/jpeg"
+          onChange={e => upload(e.target.files)}
+          style={{display:'none'}} />
+        <div style={{fontSize:24,marginBottom:6}}>📄</div>
+        <div style={{fontSize:12,fontWeight:600,color:'var(--t1)',marginBottom:3}}>
+          {uploading ? 'Uploading...' : 'Drop files here or click to upload'}
+        </div>
+        <div style={{fontSize:11,color:'var(--t3)'}}>PDF, DOCX, TXT, PNG, JPG, JPEG</div>
+      </div>
+
+      {files.length > 0 && (
+        <div style={{display:'grid',gap:8,marginTop:12}}>
+          {files.map((file: FileRow) => {
+            const linkedSubject = subjects.find((s: Subject) => s.id === file.subject_id)
+            return (
+              <div key={file.id} style={{background:'var(--card2)',border:'1px solid var(--line)',borderRadius:'var(--rs)',padding:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center',marginBottom:8}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{file.name}</div>
+                    <div style={{fontSize:10,color:'var(--t3)'}}>
+                      {formatBytes(file.size_bytes)} · {file.mime_type || 'file'}{linkedSubject ? ` · ${linkedSubject.name}` : ''}
+                    </div>
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                  {[
+                    {label:'Generate flashcards', action:'flashcards' as const},
+                    {label:'Generate summary notes', action:'summary' as const},
+                    {label:'Generate practice test', action:'practice' as const},
+                  ].map(item => (
+                    <button key={item.action}
+                      onClick={() => runFileAction(file, item.action)}
+                      disabled={!!loadingAction}
+                      style={{background:'transparent',color:'var(--t2)',border:'1px solid var(--line2)',
+                        borderRadius:'var(--rs)',padding:'6px 9px',fontSize:11,cursor:'pointer',
+                        fontFamily:'Inter, sans-serif',opacity:loadingAction && loadingAction !== `${item.action}-${file.id}` ? .45 : 1}}>
+                      {loadingAction === `${item.action}-${file.id}` ? 'Working...' : item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {output && (
+        <div style={{marginTop:10,background:'var(--acc-glow)',border:'1px solid rgba(108,92,231,.2)',
+          borderRadius:'var(--rs)',padding:12,fontSize:12,lineHeight:1.7,color:'var(--t2)'}}
+          dangerouslySetInnerHTML={{__html:output.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br/>')}} />
+      )}
+    </div>
+  )
+}
 
 function AssignmentForm({ subjects, onSave }: { subjects: Subject[], onSave: Function }) {
   const [open, setOpen] = useState(false)
@@ -913,7 +1182,22 @@ function AIPage({ messages, loading, onSend, trialExpired }: any) {
   )
 }
 
-function SubjectsPage({ subjects, curSubject, setCurSubject, assignments, onSaveSubject, onAISummarise, onAIFlashcards, userId, showToast }: any) {
+function SubjectsPage({
+  subjects,
+  curSubject,
+  setCurSubject,
+  assignments,
+  onSaveSubject,
+  onAISummarise,
+  onAIFlashcards,
+  files,
+  onUploadFiles,
+  onAIFileSummary,
+  onAIFileFlashcards,
+  onAIFilePractice,
+  userId,
+  showToast,
+}: any) {
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
   const [icon, setIcon] = useState('📖')
@@ -1010,6 +1294,16 @@ function SubjectsPage({ subjects, curSubject, setCurSubject, assignments, onSave
             <div style={{width:3,height:32,borderRadius:2,background:curSubject.color}} />
             <div style={{fontFamily:'Syne, sans-serif',fontSize:16,fontWeight:700}}>{curSubject.icon} {curSubject.name}</div>
           </div>
+          <FileDropzone
+            title="Upload subject files"
+            subtitle="Attach files to this subject and turn them into study material"
+            files={files.filter((f: FileRow) => f.subject_id === curSubject.id)}
+            subjectId={curSubject.id}
+            onUpload={onUploadFiles}
+            onSummary={onAIFileSummary}
+            onFlashcards={onAIFileFlashcards}
+            onPractice={onAIFilePractice}
+          />
           <label style={{fontSize:11,color:'var(--t2)',marginBottom:5,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Notes</label>
           <textarea value={notes} onChange={e=>setNotes(e.target.value)}
             style={{...inp,minHeight:120,resize:'vertical'} as any}
