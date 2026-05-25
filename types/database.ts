@@ -69,12 +69,16 @@ export interface Database {
           user_id: string
           subject_id: string | null
           subject_name: string
+          deck_id: string | null
+          deck_name: string | null
+          source_file_id: string | null
           front: string
           back: string
           ease: number
           interval_days: number
           missed: number
           due_date: string
+          last_studied_at: string | null
           created_at: string
           updated_at: string
         }

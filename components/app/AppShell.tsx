@@ -89,6 +89,18 @@ function getLvl(xp: number) {
 
 function today() { return new Date().toISOString().split('T')[0] }
 
+function deckNameFromFile(name: string) {
+  return name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || name
+}
+
+function subjectDeckId(sub: Subject) {
+  return `subject:${sub.id}`
+}
+
+function fileDeckId(file: FileRow) {
+  return `file:${file.id}`
+}
+
 export default function AppShell({ profile: initProfile, trial, initialPage }: Props) {
   const [profile, setProfile] = useState(initProfile)
   const [page, setPage] = useState(initialPage)
@@ -202,24 +214,25 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
     return `[${file.name}]\n${text}`
   }
 
-  async function aiFileSummary(file: FileRow) {
+  async function aiFileSummary(file: FileRow, instruction = '') {
     const subject = fileSubject(file)
-    const sys = 'Summarise the uploaded study file in 5 bullet points with **bold** key terms. If the file text is unavailable, explain that text extraction is needed.'
-    const msg = `Summarise this ${subject ? `${subject.name} ` : ''}file:\n\n${fileContext(file)}`
+    const sys = 'Summarise the uploaded study file using the student instructions if provided. Default to 5 bullet points with **bold** key terms.'
+    const msg = `Summarise this ${subject ? `${subject.name} ` : ''}file.${instruction ? `\nStudent instructions: ${instruction}` : ''}\n\n${fileContext(file)}`
     return callAI(sys, [{ role: 'user', content: msg }])
   }
 
-  async function aiFilePracticeTest(file: FileRow) {
+  async function aiFilePracticeTest(file: FileRow, instruction = '') {
     const subject = fileSubject(file)
-    const sys = 'Create a 5-question practice test from the uploaded study file. Include 3 short-answer questions, 1 multiple-choice question, 1 extended response, and an answer key. If text is unavailable, explain that text extraction is needed.'
-    const msg = `Create a practice test for this ${subject ? `${subject.name} ` : ''}file:\n\n${fileContext(file)}`
+    const sys = 'Create a practice test from the uploaded study file. Follow student instructions if provided. Default to 3 short-answer questions, 1 multiple-choice question, 1 extended response, and an answer key.'
+    const msg = `Create a practice test for this ${subject ? `${subject.name} ` : ''}file.${instruction ? `\nStudent instructions: ${instruction}` : ''}\n\n${fileContext(file)}`
     return callAI(sys, [{ role: 'user', content: msg }])
   }
 
-  async function aiFileFlashcards(file: FileRow) {
+  async function aiFileFlashcards(file: FileRow, instruction = '') {
     const subject = fileSubject(file)
-    const sys = 'Return ONLY a valid JSON array with "front" and "back" string keys. Create 6 useful exam flashcards from the uploaded file. If text is unavailable, return one card explaining that text extraction is needed.'
-    const msg = `Create flashcards for this ${subject ? `${subject.name} ` : ''}file:\n\n${fileContext(file)}`
+    const deckName = deckNameFromFile(file.name)
+    const sys = 'Return ONLY a valid JSON array with "front" and "back" string keys. Create useful exam flashcards from the uploaded file. Follow student instructions if provided.'
+    const msg = `Create flashcards for this ${subject ? `${subject.name} ` : ''}file.${instruction ? `\nStudent instructions: ${instruction}` : ''}\n\n${fileContext(file)}`
     const raw = await callAI(sys, [{ role: 'user', content: msg }])
     const cards = JSON.parse(raw.replace(/```json|```/g, '').trim())
     if (!Array.isArray(cards) || !cards.length) throw new Error('AI did not return any flashcards.')
@@ -227,6 +240,9 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
       user_id: profile.id,
       subject_id: file.subject_id,
       subject_name: subject?.name ?? 'Uploaded File',
+      deck_id: fileDeckId(file),
+      deck_name: deckName,
+      source_file_id: file.id,
       front: String(c.front ?? '').trim(),
       back: String(c.back ?? '').trim(),
       due_date: today(),
@@ -327,9 +343,10 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
   }
 
   // ── Flashcards ────────────────────────────────
-  async function rateFC(rating: 'easy'|'hard'|'wrong') {
+  async function rateFC(rating: 'easy'|'hard'|'wrong', cardId?: string) {
     if (!fcCards.length) return
-    const card = fcCards[fcIdx]
+    const card = cardId ? fcCards.find(c => c.id === cardId) : fcCards[fcIdx]
+    if (!card) return
     let { ease, interval_days, missed } = card
 
     if (rating === 'easy') { ease = Math.min(3, ease + 0.1); interval_days = Math.round(interval_days * ease); missed = Math.max(0, missed - 1) }
@@ -339,7 +356,10 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
     const nd = new Date(); nd.setDate(nd.getDate() + interval_days)
     const due_date = nd.toISOString().split('T')[0]
 
-    await supabase.from('flashcards').update({ ease, interval_days, missed, due_date }).eq('id', card.id)
+    const last_studied_at = new Date().toISOString()
+    await supabase.from('flashcards').update({ ease, interval_days, missed, due_date, last_studied_at }).eq('id', card.id)
+    setFlashcards(cards => cards.map(c => c.id === card.id ? { ...c, ease, interval_days, missed, due_date, last_studied_at } : c))
+    setFcCards(cards => cards.map(c => c.id === card.id ? { ...c, ease, interval_days, missed, due_date, last_studied_at } : c))
 
     if (rating === 'easy') {
       await addTokens(3, 'Card mastered!')
@@ -348,8 +368,10 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
       await addTokens(1, 'Keep going!')
     }
 
-    setFcFlipped(false)
-    setFcIdx(i => (i + 1) % fcCards.length)
+    if (!cardId) {
+      setFcFlipped(false)
+      setFcIdx(i => (i + 1) % fcCards.length)
+    }
   }
 
   // ── Goals ─────────────────────────────────────
@@ -406,6 +428,7 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
     const cards = JSON.parse(raw.replace(/```json|```/g, '').trim())
     const inserts = cards.map((c: any) => ({
       user_id: profile.id, subject_id: sub.id, subject_name: sub.name,
+      deck_id: subjectDeckId(sub), deck_name: sub.name, source_file_id: null,
       front: c.front, back: c.back, due_date: today(),
     }))
     const { data: newCards } = await supabase.from('flashcards').insert(inserts).select()
@@ -417,11 +440,14 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
     return cards.length
   }
 
-  async function addFlashcard(data: { subject_id: string | null; subject_name: string; front: string; back: string }) {
+  async function addFlashcard(data: { subject_id: string | null; subject_name: string; deck_id: string; deck_name: string; source_file_id?: string | null; front: string; back: string }) {
     const { data: card, error } = await supabase.from('flashcards').insert({
       user_id: profile.id,
       subject_id: data.subject_id,
       subject_name: data.subject_name,
+      deck_id: data.deck_id,
+      deck_name: data.deck_name,
+      source_file_id: data.source_file_id ?? null,
       front: data.front,
       back: data.back,
       due_date: today(),
@@ -836,6 +862,7 @@ function FileDropzone({
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [selectedSubjectId, setSelectedSubjectId] = useState('')
+  const [instruction, setInstruction] = useState('')
   const [loadingAction, setLoadingAction] = useState('')
   const [output, setOutput] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -858,12 +885,12 @@ function FileDropzone({
     setOutput('')
     try {
       if (action === 'flashcards') {
-        const count = await onFlashcards(file)
+        const count = await onFlashcards(file, instruction.trim())
         setOutput(`Created ${count} flashcards from ${file.name}.`)
       } else if (action === 'summary') {
-        setOutput(await onSummary(file))
+        setOutput(await onSummary(file, instruction.trim()))
       } else {
-        setOutput(await onPractice(file))
+        setOutput(await onPractice(file, instruction.trim()))
       }
     } catch (e: any) {
       setOutput(`Error: ${e.message}`)
@@ -917,6 +944,9 @@ function FileDropzone({
 
       {files.length > 0 && (
         <div style={{display:'grid',gap:8,marginTop:12}}>
+          <input value={instruction} onChange={e=>setInstruction(e.target.value)}
+            placeholder="Optional instructions, e.g. only use chapter 3 or make every definition a card"
+            style={{...inp,padding:'7px 10px',fontSize:12}} />
           {files.map((file: FileRow) => {
             const linkedSubject = subjects.find((s: Subject) => s.id === file.subject_id)
             return (
@@ -1007,48 +1037,81 @@ function AssignmentForm({ subjects, onSave }: { subjects: Subject[], onSave: Fun
   )
 }
 
+function getCardDeck(card: Flashcard) {
+  const deckId = card.deck_id || (card.source_file_id ? `file:${card.source_file_id}` : card.subject_id ? `subject:${card.subject_id}` : `manual:${card.subject_name || 'general'}`)
+  return {
+    id: deckId,
+    name: card.deck_name || card.subject_name || 'General',
+    source: card.source_file_id ? 'Uploaded file' : card.subject_id ? card.subject_name : 'Manual deck',
+  }
+}
+
 function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFcFlipped, rateFC, onAdd, onUpdate, onDelete }: any) {
+  const [selectedDeckId, setSelectedDeckId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [subjectFilter, setSubjectFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('all')
   const [showAdd, setShowAdd] = useState(false)
+  const [manualDeckName, setManualDeckName] = useState('')
   const [addSubjectId, setAddSubjectId] = useState('')
   const [addFront, setAddFront] = useState('')
   const [addBack, setAddBack] = useState('')
   const [editing, setEditing] = useState<Flashcard | null>(null)
   const [editFront, setEditFront] = useState('')
   const [editBack, setEditBack] = useState('')
-  const card = flashcards[fcIdx] ?? flashcards[0]
+  const [deckIdx, setDeckIdx] = useState(0)
+  const [deckFlipped, setDeckFlipped] = useState(false)
+  const [session, setSession] = useState({ studied: 0, easy: 0, hard: 0, wrong: 0, done: false })
   const todayStr = today()
-  const subjectNames = Array.from(new Set([
-    ...subjects.map((s: Subject) => s.name),
-    ...flashcards.map((c: Flashcard) => c.subject_name),
-  ].filter(Boolean)))
-  const managedCards = flashcards.filter((c: Flashcard) => {
+
+  const decks = Object.values(flashcards.reduce((acc: Record<string, any>, c: Flashcard) => {
+    const info = getCardDeck(c)
+    const deck = acc[info.id] || { ...info, cards: [] as Flashcard[] }
+    deck.cards.push(c)
+    acc[info.id] = deck
+    return acc
+  }, {})).sort((a: any, b: any) => String(b.cards[0]?.created_at ?? '').localeCompare(String(a.cards[0]?.created_at ?? '')))
+
+  const selectedDeck: any = decks.find((d: any) => d.id === selectedDeckId) ?? null
+  const deckCards: Flashcard[] = selectedDeck?.cards ?? []
+  const card = deckCards[deckIdx] ?? deckCards[0]
+  const managedCards = deckCards.filter((c: Flashcard) => {
     const q = query.trim().toLowerCase()
     const matchesSearch = !q || c.front.toLowerCase().includes(q) || c.back.toLowerCase().includes(q)
-    const matchesSubject = subjectFilter === 'All' || c.subject_name === subjectFilter
     const matchesStatus = statusFilter === 'all' ||
       (statusFilter === 'weak' && c.missed > 0) ||
-      (statusFilter === 'due' && c.due_date <= todayStr)
-    return matchesSearch && matchesSubject && matchesStatus
+      (statusFilter === 'due' && c.due_date <= todayStr) ||
+      (statusFilter === 'mastered' && c.ease >= 2.8 && c.missed === 0)
+    return matchesSearch && matchesStatus
   })
-  const groupedCards = managedCards.reduce((groups: Record<string, Flashcard[]>, c: Flashcard) => {
-    const key = c.subject_name || 'General'
-    groups[key] = groups[key] || []
-    groups[key].push(c)
-    return groups
-  }, {})
+
+  function deckStats(cards: Flashcard[]) {
+    const mastered = cards.filter(c => c.ease >= 2.8 && c.missed === 0).length
+    const missed = cards.reduce((sum, c) => sum + c.missed, 0)
+    const last = cards.map(c => c.last_studied_at).filter(Boolean).sort().at(-1)
+    return { mastered, missed, progress: cards.length ? Math.round((mastered / cards.length) * 100) : 0, last }
+  }
+
+  function openDeck(deckId: string) {
+    setSelectedDeckId(deckId)
+    setDeckIdx(0)
+    setDeckFlipped(false)
+    setSession({ studied: 0, easy: 0, hard: 0, wrong: 0, done: false })
+  }
 
   function saveAdd() {
     if (!addFront.trim() || !addBack.trim()) return
     const subject = subjects.find((s: Subject) => s.id === addSubjectId)
+    const deckName = selectedDeck?.name || manualDeckName.trim() || subject?.name || 'Manual Deck'
     onAdd({
       subject_id: subject?.id ?? null,
       subject_name: subject?.name ?? 'General',
+      deck_id: selectedDeck?.id || `manual:${deckName.toLowerCase().replace(/[^a-z0-9]+/g, '-') || Date.now()}`,
+      deck_name: deckName,
+      source_file_id: selectedDeck?.id?.startsWith('file:') ? selectedDeck.id.replace('file:', '') : null,
       front: addFront.trim(),
       back: addBack.trim(),
     })
+    setManualDeckName('')
     setAddFront('')
     setAddBack('')
     setShowAdd(false)
@@ -1066,37 +1129,122 @@ function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFc
     setEditing(null)
   }
 
+  async function answerCard(rating: 'easy'|'hard'|'wrong') {
+    if (!card) return
+    await rateFC(rating, card.id)
+    const next = {
+      studied: session.studied + 1,
+      easy: session.easy + (rating === 'easy' ? 1 : 0),
+      hard: session.hard + (rating === 'hard' ? 1 : 0),
+      wrong: session.wrong + (rating === 'wrong' ? 1 : 0),
+      done: session.studied + 1 >= deckCards.length,
+    }
+    setSession(next)
+    setDeckFlipped(false)
+    setDeckIdx(i => Math.min(i + 1, Math.max(0, deckCards.length - 1)))
+  }
+
+  function renameDeck() {
+    if (!selectedDeck) return
+    const next = window.prompt('Deck name', selectedDeck.name)?.trim()
+    if (!next) return
+    selectedDeck.cards.forEach((c: Flashcard) => onUpdate(c.id, { deck_name: next }))
+  }
+
+  if (!selectedDeck) {
+    return (
+      <div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+          <h2 style={{fontFamily:'Syne, sans-serif',fontSize:21,fontWeight:800}}>Flashcard Decks</h2>
+          <button onClick={() => setShowAdd(true)} style={btn}>+ Add Flashcard</button>
+        </div>
+        {decks.length === 0 ? (
+          <div style={{textAlign:'center',paddingTop:60,color:'var(--t3)'}}>
+            <div style={{fontSize:40,marginBottom:12}}>📇</div>
+            <p>No decks yet. Generate flashcards from a file or add one manually.</p>
+          </div>
+        ) : (
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+            {decks.map((deck: any) => {
+              const stats = deckStats(deck.cards)
+              return (
+                <button key={deck.id} onClick={() => openDeck(deck.id)}
+                  style={{textAlign:'left',background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:14,cursor:'pointer',fontFamily:'Inter, sans-serif',color:'var(--t1)'}}>
+                  <div style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:800,marginBottom:4}}>{deck.name}</div>
+                  <div style={{fontSize:11,color:'var(--t3)',marginBottom:10}}>{deck.source}</div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,fontSize:11,marginBottom:10}}>
+                    <span>{deck.cards.length} cards</span><span>{stats.mastered} mastered</span><span>{stats.missed} missed</span>
+                  </div>
+                  <div style={{height:6,background:'var(--card2)',borderRadius:4,overflow:'hidden',marginBottom:7}}>
+                    <div style={{height:'100%',width:`${stats.progress}%`,background:'var(--acc)',borderRadius:4}} />
+                  </div>
+                  <div style={{fontSize:10,color:'var(--t3)'}}>{stats.progress}% complete{stats.last ? ` · last ${String(stats.last).slice(0,10)}` : ''}</div>
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {showAdd && (
+          <FlashcardModal subjects={subjects} manualDeckName={manualDeckName} setManualDeckName={setManualDeckName}
+            addSubjectId={addSubjectId} setAddSubjectId={setAddSubjectId} addFront={addFront} setAddFront={setAddFront}
+            addBack={addBack} setAddBack={setAddBack} onCancel={() => setShowAdd(false)} onSave={saveAdd} />
+        )}
+      </div>
+    )
+  }
+
+  const stats = deckStats(deckCards)
+  const sessionPct = deckCards.length ? Math.round((session.studied / deckCards.length) * 100) : 0
+
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-        <h2 style={{fontFamily:'Syne, sans-serif',fontSize:21,fontWeight:800}}>Flashcards</h2>
-        <button onClick={() => setShowAdd(true)} style={btn}>+ Add Flashcard</button>
+        <div>
+          <button onClick={() => setSelectedDeckId(null)} style={{...miniBtn,color:'var(--t2)',marginBottom:8}}>← Decks</button>
+          <h2 style={{fontFamily:'Syne, sans-serif',fontSize:21,fontWeight:800}}>{selectedDeck.name}</h2>
+          <div style={{fontSize:11,color:'var(--t3)'}}>{deckCards.length} cards · {stats.progress}% complete</div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={renameDeck} style={{...btn,background:'var(--card2)',color:'var(--t2)',border:'1px solid var(--line2)'}}>Rename</button>
+          <button onClick={() => setShowAdd(true)} style={btn}>+ Add Card</button>
+        </div>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         <div>
           <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Practice Mode</div>
-            {!flashcards.length ? (
-              <div style={{textAlign:'center',padding:28,color:'var(--t3)',fontSize:12}}>
-                <div style={{fontSize:34,marginBottom:10}}>📇</div>
-                No flashcards yet
+            {session.done ? (
+              <div style={{textAlign:'center',padding:22}}>
+                <div style={{fontFamily:'Syne, sans-serif',fontSize:28,fontWeight:800,color:'var(--acc2)',marginBottom:4}}>
+                  {deckCards.length ? Math.round((session.easy / deckCards.length) * 100) : 0}%
+                </div>
+                <div style={{fontSize:12,color:'var(--t2)',marginBottom:12}}>Score</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14,fontSize:12}}>
+                  <div>Got it<br/><strong>{session.easy}</strong></div>
+                  <div>Hard<br/><strong>{session.hard}</strong></div>
+                  <div>Missed<br/><strong>{session.wrong}</strong></div>
+                </div>
+                <button onClick={() => { setDeckIdx(0); setSession({ studied: 0, easy: 0, hard: 0, wrong: 0, done: false }) }} style={btn}>Practice again</button>
               </div>
-            ) : (
+            ) : card ? (
               <>
-                <div style={{fontSize:10,color:'var(--t3)',marginBottom:8}}>Card {fcIdx+1} of {flashcards.length}</div>
-                <div onClick={() => setFcFlipped(!fcFlipped)}
-                  style={{height:220,background: fcFlipped ? 'rgba(108,92,231,.08)' : 'var(--card2)',
-                    border:`1px solid ${fcFlipped ? 'rgba(108,92,231,.25)' : 'var(--line2)'}`,
+                <div style={{fontSize:10,color:'var(--t3)',marginBottom:8}}>{session.studied}/{deckCards.length} cards studied</div>
+                <div style={{height:6,background:'var(--card2)',borderRadius:4,overflow:'hidden',marginBottom:10}}>
+                  <div style={{height:'100%',width:`${sessionPct}%`,background:'var(--acc)',borderRadius:4}} />
+                </div>
+                <div onClick={() => setDeckFlipped(!deckFlipped)}
+                  style={{height:220,background: deckFlipped ? 'rgba(108,92,231,.08)' : 'var(--card2)',
+                    border:`1px solid ${deckFlipped ? 'rgba(108,92,231,.25)' : 'var(--line2)'}`,
                     borderRadius:'var(--r)',display:'flex',flexDirection:'column',alignItems:'center',
                     justifyContent:'center',padding:24,textAlign:'center',cursor:'pointer',
                     transition:'all .3s'}}>
                   <div style={{fontSize:10,textTransform:'uppercase',letterSpacing:1,color:'var(--t3)',marginBottom:10}}>
-                    {fcFlipped ? 'Answer' : 'Question'}
+                    {deckFlipped ? 'Answer' : 'Question'}
                   </div>
                   <div style={{fontSize:16,fontWeight:500,lineHeight:1.5}}>
-                    {fcFlipped ? card.back : card.front}
+                    {deckFlipped ? card.back : card.front}
                   </div>
-                  {!fcFlipped && <div style={{fontSize:10,color:'var(--t3)',marginTop:8}}>Click to reveal</div>}
+                  {!deckFlipped && <div style={{fontSize:10,color:'var(--t3)',marginTop:8}}>Click to reveal</div>}
                 </div>
                 <div style={{display:'flex',gap:7,justifyContent:'center',marginTop:10}}>
                   {[
@@ -1104,7 +1252,7 @@ function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFc
                     {r:'hard',label:'△ Hard',bg:'rgba(248,200,66,.12)',c:'var(--gold)'},
                     {r:'easy',label:'✓ Got it!',bg:'rgba(45,212,160,.12)',c:'var(--ok)'},
                   ].map(b => (
-                    <button key={b.r} onClick={() => { if(!fcFlipped){setFcFlipped(true);return;} rateFC(b.r as any) }}
+                    <button key={b.r} onClick={() => { if(!deckFlipped){setDeckFlipped(true);return;} answerCard(b.r as any) }}
                       style={{flex:1,maxWidth:100,padding:8,borderRadius:'var(--rs)',border:'none',
                         fontSize:11,fontWeight:500,cursor:'pointer',fontFamily:'Inter, sans-serif',
                         background:b.bg,color:b.c}}>
@@ -1113,18 +1261,18 @@ function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFc
                   ))}
                 </div>
               </>
-            )}
+            ) : <div style={{color:'var(--t3)',fontSize:12,padding:24,textAlign:'center'}}>No cards in this deck</div>}
           </div>
 
           <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16,marginTop:12}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:12}}>Weak Cards</div>
-            {flashcards.filter((c:any)=>c.missed>0).sort((a:any,b:any)=>b.missed-a.missed).slice(0,5).map((c:any) => (
+            {deckCards.filter((c:any)=>c.missed>0).sort((a:any,b:any)=>b.missed-a.missed).slice(0,5).map((c:any) => (
               <div key={c.id} style={{padding:'6px 0',borderBottom:'1px solid var(--line)',fontSize:11}}>
                 <div style={{color:'var(--t1)'}}>{c.front.slice(0,50)}{c.front.length>50?'...':''}</div>
                 <div style={{color:'var(--warn)',fontSize:10}}>Missed {c.missed}× · {c.subject_name}</div>
               </div>
             ))}
-            {flashcards.filter((c:any)=>c.missed>0).length===0 &&
+            {deckCards.filter((c:any)=>c.missed>0).length===0 &&
               <div style={{color:'var(--t3)',fontSize:11}}>No weak spots yet!</div>}
           </div>
         </div>
@@ -1132,27 +1280,21 @@ function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFc
         <div>
           <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Manage Cards</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 120px 100px',gap:7,marginBottom:10}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 120px',gap:7,marginBottom:10}}>
               <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search cards..." style={{...inp,padding:'7px 10px',fontSize:12}} />
-              <select value={subjectFilter} onChange={e=>setSubjectFilter(e.target.value)} style={{...inp,padding:'7px 8px',fontSize:12}}>
-                <option>All</option>
-                {subjectNames.map(name => <option key={name}>{name}</option>)}
-              </select>
               <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{...inp,padding:'7px 8px',fontSize:12}}>
                 <option value="all">All cards</option>
                 <option value="due">Due</option>
                 <option value="weak">Weak</option>
+                <option value="mastered">Mastered</option>
               </select>
             </div>
 
-            {Object.keys(groupedCards).length === 0 ? (
+            {managedCards.length === 0 ? (
               <div style={{color:'var(--t3)',fontSize:12,padding:'18px 0',textAlign:'center'}}>No cards match this view</div>
-            ) : Object.entries(groupedCards).map(([subject, cards]) => (
-              <div key={subject} style={{marginBottom:12}}>
-                <div style={{fontSize:10,color:'var(--t3)',textTransform:'uppercase',letterSpacing:.4,marginBottom:6}}>{subject}</div>
-                {(cards as Flashcard[]).map(c => (
+            ) : managedCards.map(c => (
                   <div key={c.id} style={{background:'var(--card2)',border:'1px solid var(--line)',borderRadius:'var(--rs)',padding:9,marginBottom:7}}>
-                    <button onClick={() => { setFcIdx(Math.max(0, flashcards.findIndex((x: Flashcard) => x.id === c.id))); setFcFlipped(false) }}
+                    <button onClick={() => { setDeckIdx(Math.max(0, deckCards.findIndex((x: Flashcard) => x.id === c.id))); setDeckFlipped(false) }}
                       style={{display:'block',width:'100%',textAlign:'left',background:'transparent',border:'none',padding:0,color:'inherit',cursor:'pointer',fontFamily:'Inter, sans-serif'}}>
                       <div style={{fontSize:12,fontWeight:600,lineHeight:1.4,marginBottom:3}}>{c.front}</div>
                       <div style={{fontSize:11,color:'var(--t3)',lineHeight:1.4}}>{c.back}</div>
@@ -1165,45 +1307,58 @@ function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFc
                       </span>
                     </div>
                   </div>
-                ))}
-              </div>
             ))}
           </div>
         </div>
       </div>
 
       {(showAdd || editing) && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',zIndex:60,
-          display:'flex',alignItems:'center',justifyContent:'center'}}
-          onClick={() => { setShowAdd(false); setEditing(null) }}>
-          <div style={{background:'var(--panel)',border:'1px solid var(--line2)',borderRadius:14,
-            padding:22,width:430,maxWidth:'92vw'}} onClick={e => e.stopPropagation()}>
-            <div style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:700,marginBottom:14}}>
-              {editing ? 'Edit Flashcard' : 'Add Flashcard'}
-            </div>
-            {!editing && (
-              <div style={{marginBottom:10}}>
-                <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Subject</label>
-                <select value={addSubjectId} onChange={e=>setAddSubjectId(e.target.value)} style={inp}>
-                  <option value="">General</option>
-                  {subjects.map((s: Subject) => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
-                </select>
-              </div>
-            )}
-            <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Front</label>
-            <textarea value={editing ? editFront : addFront} onChange={e=>editing ? setEditFront(e.target.value) : setAddFront(e.target.value)}
-              style={{...inp,minHeight:80,resize:'vertical',marginBottom:10} as any} />
-            <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Back</label>
-            <textarea value={editing ? editBack : addBack} onChange={e=>editing ? setEditBack(e.target.value) : setAddBack(e.target.value)}
-              style={{...inp,minHeight:90,resize:'vertical'} as any} />
-            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}}>
-              <button onClick={() => { setShowAdd(false); setEditing(null) }}
-                style={{...btn,background:'transparent',color:'var(--t2)',border:'1px solid var(--line2)'}}>Cancel</button>
-              <button onClick={editing ? saveEdit : saveAdd} style={btn}>{editing ? 'Save' : 'Add'}</button>
-            </div>
-          </div>
-        </div>
+        editing
+          ? <FlashcardModal subjects={subjects} editing={editing} editFront={editFront} setEditFront={setEditFront}
+              editBack={editBack} setEditBack={setEditBack} onCancel={() => setEditing(null)} onSave={saveEdit} />
+          : <FlashcardModal subjects={subjects} selectedDeck={selectedDeck} manualDeckName={manualDeckName} setManualDeckName={setManualDeckName}
+              addSubjectId={addSubjectId} setAddSubjectId={setAddSubjectId} addFront={addFront} setAddFront={setAddFront}
+              addBack={addBack} setAddBack={setAddBack} onCancel={() => setShowAdd(false)} onSave={saveAdd} />
       )}
+    </div>
+  )
+}
+
+function FlashcardModal({ subjects, selectedDeck, manualDeckName, setManualDeckName, addSubjectId, setAddSubjectId, addFront, setAddFront, addBack, setAddBack, editing, editFront, setEditFront, editBack, setEditBack, onCancel, onSave }: any) {
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',zIndex:60,
+      display:'flex',alignItems:'center',justifyContent:'center'}} onClick={onCancel}>
+      <div style={{background:'var(--panel)',border:'1px solid var(--line2)',borderRadius:14,
+        padding:22,width:430,maxWidth:'92vw'}} onClick={e => e.stopPropagation()}>
+        <div style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:700,marginBottom:14}}>
+          {editing ? 'Edit Flashcard' : 'Add Flashcard'}
+        </div>
+        {!editing && !selectedDeck && (
+          <>
+            <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Deck name</label>
+            <input value={manualDeckName} onChange={e=>setManualDeckName(e.target.value)} style={{...inp,marginBottom:10}} placeholder="e.g. Biology definitions" />
+          </>
+        )}
+        {!editing && (
+          <div style={{marginBottom:10}}>
+            <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Subject</label>
+            <select value={addSubjectId} onChange={e=>setAddSubjectId(e.target.value)} style={inp}>
+              <option value="">General</option>
+              {subjects.map((s: Subject) => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
+            </select>
+          </div>
+        )}
+        <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Front</label>
+        <textarea value={editing ? editFront : addFront} onChange={e=>editing ? setEditFront(e.target.value) : setAddFront(e.target.value)}
+          style={{...inp,minHeight:80,resize:'vertical',marginBottom:10} as any} />
+        <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Back</label>
+        <textarea value={editing ? editBack : addBack} onChange={e=>editing ? setEditBack(e.target.value) : setAddBack(e.target.value)}
+          style={{...inp,minHeight:90,resize:'vertical'} as any} />
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}}>
+          <button onClick={onCancel} style={{...btn,background:'transparent',color:'var(--t2)',border:'1px solid var(--line2)'}}>Cancel</button>
+          <button onClick={onSave} style={btn}>{editing ? 'Save' : 'Add'}</button>
+        </div>
+      </div>
     </div>
   )
 }

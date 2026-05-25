@@ -80,12 +80,16 @@ create table public.flashcards (
   user_id      uuid not null references public.profiles(id) on delete cascade,
   subject_id   uuid references public.subjects(id) on delete set null,
   subject_name text not null default '',
+  deck_id      text,
+  deck_name    text,
+  source_file_id uuid references public.files(id) on delete set null,
   front        text not null,
   back         text not null,
   ease         numeric not null default 2.5,
   interval_days integer not null default 1,
   missed       integer not null default 0,
   due_date     date not null default current_date,
+  last_studied_at timestamptz,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
