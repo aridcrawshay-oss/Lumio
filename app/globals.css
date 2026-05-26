@@ -1,34 +1,123 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #09090f;
-  --panel: #111118;
-  --card: #16161f;
-  --card2: #1c1c28;
-  --card3: #222232;
-  --line: rgba(255,255,255,.06);
-  --line2: rgba(255,255,255,.11);
-  --t1: #eeeeff;
-  --t2: #9898bb;
-  --t3: #55556a;
-  --acc: #6c5ce7;
-  --acc2: #9b8ff0;
-  --acc-glow: rgba(108,92,231,.18);
+  --bg: #060813;
+  --panel: rgba(12, 15, 31, .78);
+  --card: rgba(18, 22, 42, .72);
+  --card2: rgba(25, 30, 54, .72);
+  --card3: rgba(38, 45, 75, .74);
+  --line: rgba(255,255,255,.075);
+  --line2: rgba(255,255,255,.14);
+  --t1: #f7f7ff;
+  --t2: #a7acc8;
+  --t3: #656b88;
+  --acc: #7c5cff;
+  --acc2: #a897ff;
+  --acc-glow: rgba(124,92,255,.22);
   --gold: #f8c842;
   --ok: #2dd4a0;
   --warn: #ff7043;
   --info: #38bdf8;
-  --r: 10px;
-  --rs: 6px;
+  --r: 18px;
+  --rs: 12px;
+  --shadow: 0 24px 70px rgba(0,0,0,.42);
+  --glass: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.032));
 }
 
 html, body { height: 100%; overflow: hidden; }
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--bg);
+  background:
+    radial-gradient(circle at 15% -10%, rgba(124,92,255,.28), transparent 34%),
+    radial-gradient(circle at 88% 0%, rgba(56,189,248,.12), transparent 30%),
+    linear-gradient(135deg, #050712 0%, #090c19 48%, #05060d 100%);
   color: var(--t1);
   font-size: 13px;
   line-height: 1.5;
+}
+
+button, input, textarea, select { transition: all .18s ease; }
+button:hover { transform: translateY(-1px); }
+button:disabled { transform: none; cursor: not-allowed; }
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+.app-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255,255,255,.026) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.026) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,.55), transparent 70%);
+}
+
+.glass-panel {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,.06);
+  backdrop-filter: blur(22px);
+}
+
+.premium-card {
+  background: linear-gradient(180deg, rgba(255,255,255,.074), rgba(255,255,255,.034));
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: 0 18px 50px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.05);
+  position: relative;
+  overflow: hidden;
+}
+
+.premium-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at top right, rgba(124,92,255,.14), transparent 38%);
+  opacity: .8;
+}
+
+.page-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.stat-card:hover, .deck-card:hover, .subject-card:hover {
+  border-color: rgba(124,92,255,.36) !important;
+  box-shadow: 0 18px 52px rgba(124,92,255,.16), 0 18px 50px rgba(0,0,0,.28) !important;
+}
+
+.soft-progress {
+  height: 7px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255,255,255,.075);
+}
+
+.soft-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--acc), var(--info));
+  box-shadow: 0 0 18px rgba(124,92,255,.42);
+}
+
+@media (max-width: 980px) {
+  .app-shell { flex-direction: column; }
+  .lumio-sidebar {
+    width: auto !important;
+    height: auto !important;
+    margin: 10px !important;
+  }
+  .lumio-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .lumio-content { padding: 12px !important; }
 }
 
 /* Scrollbar */

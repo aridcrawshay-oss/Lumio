@@ -493,28 +493,16 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
 
   // ── RENDER ─────────────────────────────────────
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100vh',overflow:'hidden'}}>
-      {/* Trial banner */}
-      {trial.isTrial && trial.daysLeft <= 5 && (
-        <div style={{background:'rgba(248,200,66,.12)',borderBottom:'1px solid rgba(248,200,66,.25)',
-          padding:'6px 20px',fontSize:12,color:'var(--gold)',textAlign:'center'}}>
-          ⏳ {trial.daysLeft} day{trial.daysLeft !== 1 ? 's' : ''} left in your free trial
+    <div className="app-shell">
+      <aside className="lumio-sidebar glass-panel" style={{width:236,flexShrink:0,margin:14,marginRight:0,borderRadius:22,display:'flex',flexDirection:'column',overflow:'hidden',position:'relative',zIndex:2}}>
+        <div style={{padding:16,borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:32,height:32,borderRadius:11,background:'linear-gradient(135deg,#7C5CFF,#38bdf8)',boxShadow:'0 0 30px rgba(124,92,255,.48)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15}}>✦</div>
+          <div>
+            <div style={{fontFamily:'Syne, sans-serif',fontWeight:800,fontSize:17,letterSpacing:'-.4px'}}>Lumio</div>
+            <div style={{fontSize:10,color:'var(--t3)'}}>Study command center</div>
+          </div>
         </div>
-      )}
-      {trial.isExpired && (
-        <div style={{background:'rgba(255,112,67,.12)',borderBottom:'1px solid rgba(255,112,67,.25)',
-          padding:'6px 20px',fontSize:12,color:'var(--warn)',textAlign:'center'}}>
-          ⚠️ Your free trial has ended. Subscribe to keep using Lumio AI features.
-        </div>
-      )}
-
-      {/* Topbar */}
-      <div style={{height:48,background:'var(--panel)',borderBottom:'1px solid var(--line)',
-        display:'flex',alignItems:'center',padding:'0 20px',gap:12,flexShrink:0}}>
-        <div style={{fontFamily:'Syne, sans-serif',fontWeight:800,fontSize:16,letterSpacing:'-.3px'}}>
-          Lumi<span style={{color:'var(--acc2)'}}>o</span>
-        </div>
-        <nav style={{display:'flex',gap:2,flex:1,marginLeft:8,overflowX:'auto'}}>
+        <nav className="lumio-nav" style={{display:'grid',gap:6,padding:12}}>
           {[
             ['dashboard','Dashboard','ti-layout-dashboard'],
             ['subjects','Subjects','ti-folders'],
@@ -526,79 +514,100 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
             ['shop','Shop','ti-shopping-bag'],
           ].map(([pg, label, icon]) => (
             <button key={pg} onClick={() => setPage(pg)}
-              style={{display:'flex',alignItems:'center',gap:5,padding:'5px 10px',
-                borderRadius:'var(--rs)',cursor:'pointer',fontSize:12,fontWeight:500,
-                border:'none',fontFamily:'Inter, sans-serif',whiteSpace:'nowrap',
-                color: page === pg ? 'var(--acc2)' : 'var(--t3)',
-                background: page === pg ? 'var(--acc-glow)' : 'transparent'}}>
-              <i className={`ti ${icon}`} style={{fontSize:14}} />
+              style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',
+                borderRadius:13,cursor:'pointer',fontSize:12,fontWeight:650,
+                border:page === pg ? '1px solid rgba(124,92,255,.38)' : '1px solid transparent',
+                fontFamily:'Inter, sans-serif',whiteSpace:'nowrap',
+                color: page === pg ? '#fff' : 'var(--t2)',
+                background: page === pg ? 'linear-gradient(135deg, rgba(124,92,255,.36), rgba(56,189,248,.08))' : 'transparent',
+                boxShadow: page === pg ? '0 12px 30px rgba(124,92,255,.20)' : 'none'}}>
+              <i className={`ti ${icon}`} style={{fontSize:15,color:page === pg ? 'var(--acc2)' : 'var(--t3)'}} />
               {label}
               {pg === 'assignments' && pendingCount > 0 && (
-                <span style={{background:'rgba(255,112,67,.25)',color:'var(--warn)',
-                  fontSize:9,padding:'1px 5px',borderRadius:8,fontWeight:600}}>
+                <span style={{marginLeft:'auto',background:'rgba(255,112,67,.18)',color:'var(--warn)',
+                  fontSize:10,padding:'1px 6px',borderRadius:999,fontWeight:800}}>
                   {pendingCount}
                 </span>
               )}
             </button>
           ))}
         </nav>
-        <div style={{display:'flex',alignItems:'center',gap:8,marginLeft:'auto'}}>
-          <div style={{display:'flex',alignItems:'center',gap:4,background:'rgba(248,200,66,.1)',
-            border:'1px solid rgba(248,200,66,.2)',borderRadius:14,padding:'3px 10px',
-            fontSize:11,fontWeight:500,color:'var(--gold)'}}>
-            🪙 {profile.tokens}
+        <div style={{marginTop:'auto',padding:14,borderTop:'1px solid var(--line)'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+            <div style={{background:'rgba(248,200,66,.09)',border:'1px solid rgba(248,200,66,.18)',borderRadius:13,padding:9,color:'var(--gold)',fontSize:11,fontWeight:800}}>🪙 {profile.tokens}</div>
+            <div style={{background:'rgba(255,112,67,.09)',border:'1px solid rgba(255,112,67,.18)',borderRadius:13,padding:9,color:'var(--warn)',fontSize:11,fontWeight:800}}>🔥 {profile.streak}</div>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:4,background:'rgba(248,200,66,.1)',
-            border:'1px solid rgba(248,200,66,.2)',borderRadius:14,padding:'3px 10px',
-            fontSize:11,fontWeight:500,color:'var(--gold)'}}>
-            🔥 {profile.streak}
-          </div>
-          <button onClick={() => setPage('settings')}
-            style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px',
-              borderRadius:'var(--rs)',cursor:'pointer',background:'var(--card)',
-              border:'1px solid var(--line2)',fontFamily:'Inter, sans-serif'}}>
-            <div style={{width:22,height:22,borderRadius:'50%',background:'var(--acc-glow)',
-              display:'flex',alignItems:'center',justifyContent:'center',
-              fontSize:11,fontWeight:700,color:'var(--acc2)'}}>
+          <button onClick={() => setPage('settings')} style={{width:'100%',display:'flex',alignItems:'center',gap:10,padding:10,borderRadius:15,cursor:'pointer',background:'rgba(255,255,255,.04)',border:'1px solid var(--line2)',fontFamily:'Inter, sans-serif',color:'var(--t1)'}}>
+            <div style={{width:34,height:34,borderRadius:'50%',background:'linear-gradient(135deg,var(--acc),var(--info))',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,color:'#fff'}}>
               {profile.name[0]?.toUpperCase()}
             </div>
-            <span style={{fontSize:12,fontWeight:500}}>{profile.name}</span>
+            <div style={{textAlign:'left',flex:1}}>
+              <div style={{fontSize:12,fontWeight:800}}>{profile.name}</div>
+              <div style={{fontSize:10,color:'var(--t3)'}}>Level {lv.l} · {lv.pct}%</div>
+            </div>
           </button>
         </div>
-      </div>
+      </aside>
 
       {/* Content */}
-      <div style={{flex:1,overflow:'auto',padding:'20px 24px'}}>
+      <div className="lumio-content" style={{flex:1,overflow:'auto',padding:'22px 24px 28px',position:'relative',zIndex:1}}>
+        {trial.isTrial && trial.daysLeft <= 5 && (
+          <div style={{background:'rgba(248,200,66,.12)',border:'1px solid rgba(248,200,66,.25)',borderRadius:14,padding:'8px 14px',fontSize:12,color:'var(--gold)',marginBottom:14}}>
+            ⏳ {trial.daysLeft} day{trial.daysLeft !== 1 ? 's' : ''} left in your free trial
+          </div>
+        )}
+        {trial.isExpired && (
+          <div style={{background:'rgba(255,112,67,.12)',border:'1px solid rgba(255,112,67,.25)',borderRadius:14,padding:'8px 14px',fontSize:12,color:'var(--warn)',marginBottom:14}}>
+            ⚠️ Your free trial has ended. Subscribe to keep using Lumio AI features.
+          </div>
+        )}
 
         {/* ── DASHBOARD ── */}
         {page === 'dashboard' && (
-          <div>
-            <div style={{marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div className="page-grid">
+            <div className="premium-card" style={{padding:22,display:'grid',gridTemplateColumns:'1.3fr .7fr',gap:18,alignItems:'center'}}>
               <div>
-                <h2 style={{fontFamily:'Syne, sans-serif',fontSize:21,fontWeight:800,marginBottom:2}}>
+                <div style={{display:'inline-flex',gap:7,alignItems:'center',padding:'5px 9px',borderRadius:999,background:'rgba(124,92,255,.12)',border:'1px solid rgba(124,92,255,.22)',color:'var(--acc2)',fontSize:11,fontWeight:700,marginBottom:12}}>
+                  <span>✦</span> Daily command center
+                </div>
+                <h2 style={{fontFamily:'Syne, sans-serif',fontSize:32,fontWeight:800,marginBottom:6,letterSpacing:'-.8px'}}>
                   {(() => { const h = new Date().getHours(); return `Good ${h<12?'morning':h<17?'afternoon':'evening'}, ${profile.name}! ${h<12?'☀️':h<17?'🌤️':'🌙'}` })()}
                 </h2>
-                <p style={{color:'var(--t2)',fontSize:12}}>
-                  {pendingCount > 0 ? `${pendingCount} assignment${pendingCount>1?'s':''} pending` : 'All caught up! 🎉'}
+                <p style={{color:'var(--t2)',fontSize:13,marginBottom:16}}>
+                  {pendingCount > 0 ? `${pendingCount} assignment${pendingCount>1?'s':''} pending. Keep the streak moving.` : 'All caught up. Pick a deck or upload something new.'}
                 </p>
+                <div style={{display:'flex',gap:9,flexWrap:'wrap'}}>
+                  <button onClick={() => setPage('flashcards')} style={btn}>Continue studying</button>
+                  <button onClick={() => setPage('ai')} style={{...btn,background:'rgba(255,255,255,.05)',border:'1px solid var(--line2)',color:'var(--t1)'}}>Ask AI tutor</button>
+                  <button onClick={() => setPage('assignments')} style={{...btn,background:'rgba(255,255,255,.05)',border:'1px solid var(--line2)',color:'var(--t1)'}}>Add assignment</button>
+                </div>
               </div>
-              <button onClick={() => setPage('assignments')}
-                style={{background:'var(--acc)',color:'#fff',border:'none',borderRadius:'var(--rs)',
-                  padding:'7px 14px',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'Inter, sans-serif'}}>
-                + Add Assignment
-              </button>
+              <div style={{background:'rgba(255,255,255,.045)',border:'1px solid var(--line)',borderRadius:18,padding:16}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:8}}>
+                  <span>Level {lv.l} · {lv.n}</span><span style={{color:'var(--acc2)'}}>{lv.pct}%</span>
+                </div>
+                <div className="soft-progress"><span style={{width:`${lv.pct}%`}} /></div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginTop:14}}>
+                  {[{k:'XP',v:profile.xp},{k:'Streak',v:profile.streak},{k:'Done',v:assignments.filter(a=>a.done).length}].map(x=>(
+                    <div key={x.k} style={{background:'rgba(0,0,0,.18)',border:'1px solid var(--line)',borderRadius:13,padding:10}}>
+                      <div style={{fontSize:18,fontFamily:'Syne, sans-serif',fontWeight:800}}>{x.v}</div>
+                      <div style={{fontSize:10,color:'var(--t3)'}}>{x.k}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Stats */}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:14}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:12}}>
               {[
-                {l:'Tokens',v:profile.tokens,c:'var(--gold)'},
-                {l:'Streak',v:profile.streak,c:'var(--warn)',s:'days'},
-                {l:'FC Mastered',v:profile.fc_mastered,c:'var(--info)'},
-                {l:'Done',v:assignments.filter(a=>a.done).length,c:'var(--ok)',s:`of ${assignments.length}`},
+                {l:'Tokens',v:profile.tokens,c:'var(--gold)',i:'💰'},
+                {l:'Day Streak',v:profile.streak,c:'var(--warn)',s:'days',i:'🔥'},
+                {l:'Mastered',v:profile.fc_mastered,c:'var(--info)',i:'📇'},
+                {l:'Completed',v:assignments.filter(a=>a.done).length,c:'var(--ok)',s:`of ${assignments.length}`,i:'✅'},
               ].map(s => (
-                <div key={s.l} style={{background:'var(--card)',border:'1px solid var(--line)',
-                  borderRadius:'var(--r)',padding:14}}>
+                <div className="stat-card premium-card" key={s.l} style={{padding:16}}>
+                  <div style={{position:'absolute',right:14,top:13,fontSize:19}}>{s.i}</div>
                   <div style={{fontSize:10,color:'var(--t3)',textTransform:'uppercase',letterSpacing:.4,marginBottom:5}}>{s.l}</div>
                   <div style={{fontFamily:'Syne, sans-serif',fontSize:22,fontWeight:700,color:s.c,marginBottom:1}}>{s.v}</div>
                   {s.s && <div style={{fontSize:11,color:'var(--t3)'}}>{s.s}</div>}
@@ -606,69 +615,73 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
               ))}
             </div>
 
-            <FileDropzone
-              title="Upload study files"
-              subtitle="PDF, DOCX, TXT, PNG, JPG or JPEG"
-              files={files.slice(0, 6)}
-              subjects={subjects}
-              onUpload={uploadStudyFiles}
-              onSummary={aiFileSummary}
-              onFlashcards={aiFileFlashcards}
-              onPractice={aiFilePracticeTest}
-            />
+            <div style={{display:'grid',gridTemplateColumns:'1.25fr .75fr',gap:16}}>
+              <div className="premium-card" style={{padding:16}}>
+                <div style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:800,marginBottom:12}}>Continue Studying</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+                  {[
+                    ...flashcards.slice(0,2).map(c=>({title:c.deck_name||c.subject_name,sub:c.subject_name,meta:'Flashcard deck',pct:Math.min(100,Math.round(c.ease/3*100)),icon:'📇'})),
+                    ...subjects.slice(0,1).map(s=>({title:s.name,sub:'Subject notes',meta:`${assignments.filter(a=>a.subject_id===s.id&&!a.done).length} pending`,pct:s.progress||35,icon:s.icon})),
+                  ].slice(0,3).map((item,idx)=>(
+                    <button key={`${item.title}-${idx}`} onClick={()=>setPage(idx===2?'subjects':'flashcards')}
+                      style={{textAlign:'left',background:'rgba(255,255,255,.045)',border:'1px solid var(--line)',borderRadius:15,padding:13,color:'var(--t1)',fontFamily:'Inter, sans-serif',cursor:'pointer'}}>
+                      <div style={{fontSize:20,marginBottom:10}}>{item.icon}</div>
+                      <div style={{fontSize:10,color:'var(--t3)'}}>{item.sub}</div>
+                      <div style={{fontSize:12,fontWeight:800,marginBottom:4}}>{item.title}</div>
+                      <div style={{fontSize:10,color:'var(--t3)',marginBottom:8}}>{item.meta}</div>
+                      <div className="soft-progress"><span style={{width:`${item.pct}%`}} /></div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <FileDropzone
+                title="Upload"
+                subtitle="Drop a file and turn it into cards"
+                files={files.slice(0, 3)}
+                subjects={subjects}
+                onUpload={uploadStudyFiles}
+                onSummary={aiFileSummary}
+                onFlashcards={aiFileFlashcards}
+                onPractice={aiFilePracticeTest}
+              />
+            </div>
 
-            {/* Level + Upcoming */}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
-              <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
-                <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:12}}>Level Progress</div>
-                <div style={{display:'flex',justifyContent:'space-between',marginBottom:5,fontSize:12}}>
-                  <span>Level {lv.l} — {lv.n}</span>
-                  <span style={{color:'var(--t3)'}}>{profile.xp}/{lv.xp} XP</span>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+              <div className="premium-card" style={{padding:16}}>
+                <div style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:800,marginBottom:12,display:'flex',justifyContent:'space-between'}}>Upcoming Timeline <span style={{fontSize:11,color:'var(--acc2)',cursor:'pointer'}} onClick={()=>setPage('assignments')}>View all</span></div>
+                {assignments.filter(a=>!a.done).slice(0,5).map((a,idx)=>(
+                  <div key={a.id} onClick={() => toggleAssignment(a.id)} style={{display:'grid',gridTemplateColumns:'22px 1fr auto',gap:10,alignItems:'center',padding:'9px 0',borderBottom:'1px solid var(--line)',cursor:'pointer'}}>
+                    <span style={{width:12,height:12,borderRadius:'50%',background:idx===0?'var(--warn)':idx===1?'var(--gold)':'var(--ok)',boxShadow:'0 0 18px currentColor'}} />
+                    <div>
+                      <div style={{fontSize:12,fontWeight:750}}>{a.title}</div>
+                      <div style={{fontSize:10,color:'var(--t3)'}}>{subjects.find(s=>s.id===a.subject_id)?.name ?? 'General'}</div>
+                    </div>
+                    <div style={{fontSize:10,color:'var(--t3)'}}>{a.due_date ?? 'No date'}</div>
+                  </div>
+                ))}
+                {assignments.filter(a=>!a.done).length===0 && <div style={{fontSize:12,color:'var(--t3)',padding:16}}>No pending assignments</div>}
+              </div>
+              <div className="premium-card" style={{padding:16}}>
+                <div style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:800,marginBottom:12}}>Study Heatmap</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(14,1fr)',gap:5}}>
+                  {Array.from({length:56}).map((_,i)=> {
+                    const active = (i + profile.streak + profile.tokens) % 5
+                    return <div key={i} style={{aspectRatio:'1',borderRadius:5,background:active>2?'linear-gradient(135deg,var(--acc),var(--info))':active>0?'rgba(124,92,255,.22)':'rgba(255,255,255,.055)',border:'1px solid rgba(255,255,255,.04)'}} />
+                  })}
                 </div>
-                <div style={{height:6,background:'var(--card2)',borderRadius:4,overflow:'hidden'}}>
-                  <div style={{height:'100%',background:'linear-gradient(90deg,var(--acc),var(--gold))',
-                    borderRadius:4,width:`${lv.pct}%`,transition:'width .5s'}} />
-                </div>
-                <div style={{fontSize:11,color:'var(--t3)',marginTop:5}}>{lv.xp-profile.xp} XP to Level {lv.l+1}</div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:12}}>
-                  {BADGES.map(b => (
-                    <div key={b.id} style={{textAlign:'center',padding:'8px 4px',
-                      background:'var(--card2)',borderRadius:'var(--rs)',
-                      border:'1px solid var(--line)',
-                      opacity:b.ok(profile,{doneTasks:assignments.filter(a=>a.done).length})?1:.2,
-                      filter:b.ok(profile,{doneTasks:assignments.filter(a=>a.done).length})?'none':'grayscale(1)'}}>
-                      <div style={{fontSize:18,marginBottom:3}}>{b.icon}</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginTop:14}}>
+                  {BADGES.slice(0,4).map(b => (
+                    <div key={b.id} style={{textAlign:'center',padding:'9px 4px',background:'rgba(255,255,255,.045)',borderRadius:13,border:'1px solid var(--line)',opacity:b.ok(profile,{doneTasks:assignments.filter(a=>a.done).length})?1:.35}}>
+                      <div style={{fontSize:18}}>{b.icon}</div>
                       <div style={{fontSize:9,color:'var(--t3)'}}>{b.name}</div>
                     </div>
                   ))}
                 </div>
               </div>
-              <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
-                <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:12,
-                  display:'flex',justifyContent:'space-between'}}>
-                  Upcoming
-                  <span style={{fontSize:11,color:'var(--acc2)',cursor:'pointer',fontWeight:400}}
-                    onClick={() => setPage('assignments')}>All</span>
-                </div>
-                {assignments.filter(a=>!a.done).slice(0,4).length === 0
-                  ? <div style={{color:'var(--t3)',fontSize:12,padding:'12px 0'}}>No pending assignments 🎉</div>
-                  : assignments.filter(a=>!a.done).slice(0,4).map(a => (
-                    <div key={a.id} onClick={() => toggleAssignment(a.id)}
-                      style={{display:'flex',alignItems:'center',gap:9,padding:'8px 0',
-                        borderBottom:'1px solid var(--line)',cursor:'pointer'}}>
-                      <div style={{width:17,height:17,borderRadius:'50%',border:'1.5px solid var(--line2)',flexShrink:0}} />
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:12,fontWeight:500}}>{a.title}</div>
-                        {a.due_date && <div style={{fontSize:10,color:'var(--t3)'}}>{a.due_date}</div>}
-                      </div>
-                    </div>
-                  ))
-                }
-              </div>
             </div>
 
             {/* Subjects */}
-            <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+            <div className="premium-card" style={{padding:16}}>
               <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:12,
                 display:'flex',justifyContent:'space-between'}}>
                 Subjects
@@ -703,7 +716,7 @@ export default function AppShell({ profile: initProfile, trial, initialPage }: P
               <h2 style={{fontFamily:'Syne, sans-serif',fontSize:21,fontWeight:800}}>Assignments</h2>
               <AssignmentForm subjects={subjects} onSave={saveAssignment} />
             </div>
-            <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+            <div className="premium-card" style={{padding:16}}>
               {assignments.length === 0
                 ? <div style={{color:'var(--t3)',fontSize:12,textAlign:'center',padding:24}}>No assignments yet</div>
                 : assignments.map(a => {
@@ -900,7 +913,7 @@ function FileDropzone({
   }
 
   return (
-    <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16,marginBottom:14}}>
+    <div className="premium-card" style={{padding:14,marginBottom:14}}>
       <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',marginBottom:10}}>
         <div>
           <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:3}}>{title}</div>
@@ -929,13 +942,13 @@ function FileDropzone({
         onDragLeave={() => setDragging(false)}
         onDrop={e => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files) }}
         style={{border:`1px dashed ${dragging ? 'var(--acc)' : 'var(--line2)'}`,
-          background:dragging ? 'var(--acc-glow)' : 'var(--card2)',borderRadius:'var(--rs)',
-          padding:18,textAlign:'center',cursor:'pointer',transition:'all .15s'}}>
+          background:dragging ? 'var(--acc-glow)' : 'rgba(255,255,255,.04)',borderRadius:'var(--rs)',
+          padding:12,textAlign:'center',cursor:'pointer',transition:'all .15s'}}>
         <input ref={inputRef} type="file" multiple
           accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/png,image/jpeg"
           onChange={e => upload(e.target.files)}
           style={{display:'none'}} />
-        <div style={{fontSize:24,marginBottom:6}}>📄</div>
+        <div style={{fontSize:20,marginBottom:4}}>📄</div>
         <div style={{fontSize:12,fontWeight:600,color:'var(--t1)',marginBottom:3}}>
           {uploading ? 'Uploading...' : 'Drop files here or click to upload'}
         </div>
@@ -950,7 +963,7 @@ function FileDropzone({
           {files.map((file: FileRow) => {
             const linkedSubject = subjects.find((s: Subject) => s.id === file.subject_id)
             return (
-              <div key={file.id} style={{background:'var(--card2)',border:'1px solid var(--line)',borderRadius:'var(--rs)',padding:10}}>
+              <div key={file.id} style={{background:'rgba(255,255,255,.045)',border:'1px solid var(--line)',borderRadius:'var(--rs)',padding:10}}>
                 <div style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center',marginBottom:8}}>
                   <div style={{minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{file.name}</div>
@@ -971,7 +984,7 @@ function FileDropzone({
                     <button key={item.action}
                       onClick={() => runFileAction(file, item.action)}
                       disabled={!!loadingAction}
-                      style={{background:'transparent',color:'var(--t2)',border:'1px solid var(--line2)',
+                      style={{background:'rgba(255,255,255,.035)',color:'var(--t2)',border:'1px solid var(--line2)',
                         borderRadius:'var(--rs)',padding:'6px 9px',fontSize:11,cursor:'pointer',
                         fontFamily:'Inter, sans-serif',opacity:loadingAction && loadingAction !== `${item.action}-${file.id}` ? .45 : 1}}>
                       {loadingAction === `${item.action}-${file.id}` ? 'Working...' : item.label}
@@ -1168,8 +1181,8 @@ function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFc
             {decks.map((deck: any) => {
               const stats = deckStats(deck.cards)
               return (
-                <button key={deck.id} onClick={() => openDeck(deck.id)}
-                  style={{textAlign:'left',background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:14,cursor:'pointer',fontFamily:'Inter, sans-serif',color:'var(--t1)'}}>
+                <button className="deck-card premium-card" key={deck.id} onClick={() => openDeck(deck.id)}
+                  style={{textAlign:'left',border:'1px solid var(--line)',padding:14,cursor:'pointer',fontFamily:'Inter, sans-serif',color:'var(--t1)'}}>
                   <div style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:800,marginBottom:4}}>{deck.name}</div>
                   <div style={{fontSize:11,color:'var(--t3)',marginBottom:10}}>{deck.source}</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,fontSize:11,marginBottom:10}}>
@@ -1211,7 +1224,7 @@ function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFc
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         <div>
-          <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+          <div className="premium-card" style={{padding:16}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Practice Mode</div>
             {session.done ? (
               <div style={{textAlign:'center',padding:22}}>
@@ -1264,7 +1277,7 @@ function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFc
             ) : <div style={{color:'var(--t3)',fontSize:12,padding:24,textAlign:'center'}}>No cards in this deck</div>}
           </div>
 
-          <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16,marginTop:12}}>
+          <div className="premium-card" style={{padding:16,marginTop:12}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:12}}>Weak Cards</div>
             {deckCards.filter((c:any)=>c.missed>0).sort((a:any,b:any)=>b.missed-a.missed).slice(0,5).map((c:any) => (
               <div key={c.id} style={{padding:'6px 0',borderBottom:'1px solid var(--line)',fontSize:11}}>
@@ -1278,7 +1291,7 @@ function FlashcardPage({ flashcards, subjects, fcIdx, setFcIdx, fcFlipped, setFc
         </div>
 
         <div>
-          <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+          <div className="premium-card" style={{padding:16}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Manage Cards</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 120px',gap:7,marginBottom:10}}>
               <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search cards..." style={{...inp,padding:'7px 10px',fontSize:12}} />
@@ -1376,7 +1389,7 @@ function PomodoroPage({ pomoSec, setPomoSec, pomoRunning, setPomoRunning, pomoMo
     <div>
       <h2 style={{fontFamily:'Syne, sans-serif',fontSize:21,fontWeight:800,marginBottom:14}}>Pomodoro Timer</h2>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
-        <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:20,textAlign:'center'}}>
+        <div className="premium-card" style={{padding:26,textAlign:'center'}}>
           <div style={{display:'flex',gap:5,justifyContent:'center',marginBottom:14}}>
             {[{m:'study',l:'Study 25m',mins:25},{m:'short',l:'Break 5m',mins:5},{m:'long',l:'Long 15m',mins:15}].map(b=>(
               <button key={b.m} onClick={()=>{setPomoMode(b.m);setPomoMins(b.mins);setPomoSec(b.mins*60);setPomoRunning(false);}}
@@ -1386,13 +1399,13 @@ function PomodoroPage({ pomoSec, setPomoSec, pomoRunning, setPomoRunning, pomoMo
               </button>
             ))}
           </div>
-          <svg width="148" height="148" viewBox="0 0 148 148" style={{transform:'rotate(-90deg)'}}>
-            <circle cx="74" cy="74" r="66" fill="none" stroke="var(--card3)" strokeWidth="7" />
+          <svg width="190" height="190" viewBox="0 0 148 148" style={{transform:'rotate(-90deg)',filter:'drop-shadow(0 0 24px rgba(124,92,255,.35))'}}>
+            <circle cx="74" cy="74" r="66" fill="none" stroke="rgba(255,255,255,.07)" strokeWidth="7" />
             <circle cx="74" cy="74" r="66" fill="none" stroke="var(--acc)" strokeWidth="7"
               strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C*(1-pct)} style={{transition:'stroke-dashoffset 1s linear'}} />
           </svg>
-          <div style={{marginTop:-80,marginBottom:60}}>
-            <div style={{fontFamily:'Syne, sans-serif',fontSize:28,fontWeight:800}}>{String(m).padStart(2,'0')}:{String(s).padStart(2,'0')}</div>
+          <div style={{marginTop:-106,marginBottom:82}}>
+            <div style={{fontFamily:'Syne, sans-serif',fontSize:38,fontWeight:800}}>{String(m).padStart(2,'0')}:{String(s).padStart(2,'0')}</div>
             <div style={{fontSize:10,color:'var(--t3)',textTransform:'uppercase',letterSpacing:.5}}>
               {pomoMode==='study'?'Study':pomoMode==='short'?'Short Break':'Long Break'}
             </div>
@@ -1411,7 +1424,7 @@ function PomodoroPage({ pomoSec, setPomoSec, pomoRunning, setPomoRunning, pomoMo
           </div>
           <div style={{marginTop:12,fontSize:11,color:'var(--t2)'}}>Sessions today: <strong style={{color:'var(--acc2)'}}>{pomoCount}</strong></div>
         </div>
-        <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+        <div className="premium-card" style={{padding:16}}>
           <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Tips</div>
           <div style={{fontSize:11,color:'var(--t2)',lineHeight:1.9}}>
             • 25-min focused work sprints<br/>• 5-min break after each session<br/>
@@ -1447,7 +1460,7 @@ function AIPage({ messages, loading, onSend, trialExpired }: any) {
         </div>
       )}
       <div style={{display:'grid',gridTemplateColumns:'1fr 280px',gap:14,alignItems:'start'}}>
-        <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16,display:'flex',flexDirection:'column'}}>
+        <div className="premium-card" style={{padding:16,display:'flex',flexDirection:'column'}}>
           <div style={{display:'flex',gap:7,marginBottom:12,alignItems:'center'}}>
             <select value={mode} onChange={e=>setMode(e.target.value)}
               style={{flex:1,background:'var(--card2)',border:'1px solid var(--line2)',borderRadius:'var(--rs)',
@@ -1494,7 +1507,7 @@ function AIPage({ messages, loading, onSend, trialExpired }: any) {
             </button>
           </div>
         </div>
-        <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:14}}>
+        <div className="premium-card" style={{padding:14}}>
           <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Quick Prompts</div>
           {['Explain this simply: ','Quiz me on my subjects','Best memory techniques?','3 tips to stay focused'].map(p=>(
             <button key={p} onClick={()=>{setInput(p);}}
@@ -1573,7 +1586,7 @@ function SubjectsPage({
       </div>
 
       {showForm && (
-        <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16,marginBottom:14}}>
+        <div className="premium-card" style={{padding:16,marginBottom:14}}>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             {[
               {l:'Name', el:<input style={inp} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Biology" />},
@@ -1599,25 +1612,26 @@ function SubjectsPage({
         </div>
       )}
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:16}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:12,marginBottom:16}}>
         {subjects.map((s: Subject) => (
-          <div key={s.id} onClick={()=>setCurSubject(curSubject?.id===s.id?null:s)}
-            style={{background:'var(--card)',border:`1px solid ${curSubject?.id===s.id?'var(--acc)':'var(--line)'}`,
-              borderRadius:'var(--r)',padding:14,cursor:'pointer',position:'relative',overflow:'hidden',
-              transition:'all .15s'}}>
-            <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:s.color}} />
-            <div style={{fontSize:22,marginBottom:7}}>{s.icon}</div>
-            <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>{s.name}</div>
-            <div style={{fontSize:11,color:'var(--t3)'}}>
-              {assignments.filter((a: Assignment)=>a.subject_id===s.id&&!a.done).length} pending
+          <div className="subject-card premium-card" key={s.id} onClick={()=>setCurSubject(curSubject?.id===s.id?null:s)}
+            style={{border:`1px solid ${curSubject?.id===s.id?'rgba(124,92,255,.55)':'var(--line)'}`,padding:16,cursor:'pointer'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <div style={{width:38,height:38,borderRadius:14,background:`linear-gradient(135deg,${s.color},var(--acc))`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,boxShadow:'0 0 24px rgba(124,92,255,.24)'}}>{s.icon}</div>
+              <div style={{width:38,height:38,borderRadius:'50%',border:'3px solid rgba(255,255,255,.08)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'var(--acc2)'}}>{s.progress || 0}%</div>
             </div>
+            <div style={{fontSize:14,fontWeight:800,marginBottom:2}}>{s.name}</div>
+            <div style={{fontSize:11,color:'var(--t3)'}}>
+              {assignments.filter((a: Assignment)=>a.subject_id===s.id&&!a.done).length} assignments · recent activity
+            </div>
+            <div className="soft-progress" style={{marginTop:12}}><span style={{width:`${s.progress || 30}%`,background:`linear-gradient(90deg,${s.color},var(--info))`}} /></div>
           </div>
         ))}
         {subjects.length === 0 && <div style={{gridColumn:'1/-1',color:'var(--t3)',fontSize:12,padding:20,textAlign:'center'}}>No subjects yet — create one above</div>}
       </div>
 
       {curSubject && (
-        <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+        <div className="premium-card" style={{padding:16}}>
           <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:14}}>
             <div style={{width:3,height:32,borderRadius:2,background:curSubject.color}} />
             <div style={{fontFamily:'Syne, sans-serif',fontSize:16,fontWeight:700}}>{curSubject.icon} {curSubject.name}</div>
@@ -1671,7 +1685,7 @@ function GoalsPage({ goals, subjects, onSave }: any) {
     <div>
       <h2 style={{fontFamily:'Syne, sans-serif',fontSize:21,fontWeight:800,marginBottom:14}}>Goals</h2>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
-        <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+        <div className="premium-card" style={{padding:16}}>
           <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:12}}>My Goals</div>
           {goals.length === 0
             ? <div style={{color:'var(--t3)',fontSize:12}}>No goals yet — set a target grade!</div>
@@ -1692,7 +1706,7 @@ function GoalsPage({ goals, subjects, onSave }: any) {
               })
           }
         </div>
-        <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+        <div className="premium-card" style={{padding:16}}>
           <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:12}}>Add Goal</div>
           {[
             {l:'Goal',el:<input style={inp} value={title} onChange={e=>setTitle(e.target.value)} placeholder="e.g. Get 90% in Biology" />},
@@ -1727,8 +1741,8 @@ function ShopPage({ items, tokens, inventory, onBuy }: any) {
           const owned = inventory.includes(item.id)
           const can = tokens >= item.price
           return (
-            <div key={item.id} style={{background:'var(--card2)',border:`1px solid ${owned?'rgba(45,212,160,.25)':'var(--line)'}`,
-              borderRadius:'var(--r)',padding:14,textAlign:'center'}}>
+            <div className="premium-card" key={item.id} style={{border:`1px solid ${owned?'rgba(45,212,160,.28)':'var(--line)'}`,
+              padding:16,textAlign:'center'}}>
               <div style={{fontSize:28,marginBottom:6}}>{item.icon}</div>
               <div style={{fontSize:12,fontWeight:600,marginBottom:3}}>{item.name}</div>
               <div style={{fontSize:11,color:'var(--t3)',marginBottom:8,lineHeight:1.4}}>{item.desc}</div>
@@ -1758,7 +1772,7 @@ function SettingsPage({ profile, themes, accents, onUpdateProfile, onLogout }: a
       <h2 style={{fontFamily:'Syne, sans-serif',fontSize:21,fontWeight:800,marginBottom:14}}>Settings</h2>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         <div>
-          <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16,marginBottom:12}}>
+          <div className="premium-card" style={{padding:16,marginBottom:12}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Theme</div>
             <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
               {Object.entries(themes).map(([key, th]: any) => (
@@ -1775,7 +1789,7 @@ function SettingsPage({ profile, themes, accents, onUpdateProfile, onLogout }: a
               ))}
             </div>
           </div>
-          <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+          <div className="premium-card" style={{padding:16}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Accent Colour</div>
             <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
               {accents.map((ac: any, i: number) => (
@@ -1788,14 +1802,14 @@ function SettingsPage({ profile, themes, accents, onUpdateProfile, onLogout }: a
           </div>
         </div>
         <div>
-          <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16,marginBottom:12}}>
+          <div className="premium-card" style={{padding:16,marginBottom:12}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Account</div>
             <div style={{fontSize:12,color:'var(--t2)',marginBottom:12}}>{profile.email}</div>
             <label style={{fontSize:11,color:'var(--t2)',marginBottom:4,display:'block',textTransform:'uppercase',letterSpacing:.3}}>Display Name</label>
             <input style={{...inp,marginBottom:10}} value={name} onChange={e=>setName(e.target.value)} />
             <button onClick={()=>onUpdateProfile({name})} style={{...btn,width:'100%',justifyContent:'center',marginBottom:8}}>Save Name</button>
           </div>
-          <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--r)',padding:16}}>
+          <div className="premium-card" style={{padding:16}}>
             <div style={{fontFamily:'Syne, sans-serif',fontSize:13,fontWeight:700,marginBottom:10}}>Session</div>
             <button onClick={onLogout}
               style={{width:'100%',background:'rgba(255,112,67,.08)',border:'1px solid rgba(255,112,67,.2)',
